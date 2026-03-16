@@ -293,8 +293,7 @@ export class Altium365 implements INodeType {
 					}
 
 					if (operation === 'updateParameters') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
-						// TODO: Add parameter input fields
+						// TODO: Add parameter input fields and implement mutation
 						throw new NodeOperationError(
 							this.getNode(),
 							'Update Parameters operation not yet implemented',
