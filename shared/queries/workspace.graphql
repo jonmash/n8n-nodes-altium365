@@ -3,6 +3,5 @@ query GetWorkspaceInfos {
   desWorkspaceInfos {
     url
     name
-    location
   }
 }
