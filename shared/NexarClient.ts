@@ -68,7 +68,7 @@ export class NexarClient {
 			throw new Error(`OAuth token request failed: ${response.status} ${errorText}`);
 		}
 
-		const tokenData: TokenResponse = await response.json();
+		const tokenData = (await response.json()) as TokenResponse;
 
 		// Calculate token expiration time with buffer
 		// tokenData.expires_in is in seconds (typically 86400 = 24 hours for Nexar)
