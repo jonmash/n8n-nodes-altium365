@@ -1,0 +1,29 @@
+schema: https://api.nexar.com/graphql
+documents: 'shared/queries/**/*.graphql'
+generates:
+  shared/generated/nexar-schema.ts:
+    plugins:
+      - typescript
+    config:
+      skipTypename: false
+      enumsAsTypes: true
+      avoidOptionals:
+        field: false
+        object: false
+        inputValue: false
+      scalars:
+        DateTime: string
+        Decimal: number
+        Long: number
+        Upload: File
+  shared/generated/graphql-operations.ts:
+    preset: import-types
+    presetConfig:
+      typesPath: ./nexar-schema
+    plugins:
+      - typescript-operations
+      - typescript-graphql-request
+    config:
+      skipTypename: false
+      rawRequest: false
+      dedupeFragments: true

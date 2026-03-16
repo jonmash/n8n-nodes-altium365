@@ -1,0 +1,8 @@
+# Get workspace info (used for credential test)
+query GetWorkspaceInfos {
+  desWorkspaceInfos {
+    url
+    name
+    location
+  }
+}
