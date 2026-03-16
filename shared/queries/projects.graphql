@@ -1,0 +1,126 @@
+# Get all projects with pagination
+query GetProjects($workspaceUrl: String!, $first: Int, $after: String, $where: DesProjectFilterInput) {
+  desProjects(workspaceUrl: $workspaceUrl, first: $first, after: $after, where: $where) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+    nodes {
+      id
+      projectId
+      name
+      description
+      projectType
+      createdAt
+      updatedAt
+      createdBy {
+        userName
+        userId
+        email
+      }
+      updatedBy {
+        userName
+        userId
+        email
+      }
+      url
+      workspaceUrl
+      previewUrl
+      variantCount
+    }
+  }
+}
+
+# Get project by ID
+query GetProjectById($id: ID!) {
+  desProjectById(id: $id) {
+    id
+    projectId
+    name
+    description
+    projectType
+    createdAt
+    updatedAt
+    createdBy {
+      userName
+      userId
+      email
+    }
+    updatedBy {
+      userName
+      userId
+      email
+    }
+    url
+    workspaceUrl
+    previewUrl
+    variantCount
+    parameters {
+      name
+      value
+    }
+  }
+}
+
+# Get latest commit for a project
+query GetLatestCommit($projectId: ID!) {
+  desProjectById(id: $projectId) {
+    id
+    name
+    updatedAt
+    latestRevision {
+      revisionId
+      message
+      author
+      createdAt
+      files {
+        kind
+        path
+      }
+    }
+  }
+}
+
+# Get commit history for a project
+query GetCommitHistory($projectId: ID!, $first: Int, $after: String) {
+  desProjectById(id: $projectId) {
+    id
+    name
+    revisions(first: $first, after: $after) {
+      totalCount
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        revisionId
+        message
+        author
+        createdAt
+        files {
+          kind
+          path
+        }
+      }
+    }
+  }
+}
+
+# Update project parameters
+mutation UpdateProjectParameters($projectId: ID!, $parameters: [DesProjectParameterInput!]!, $replaceExisting: Boolean) {
+  desUpdateProjectParameters(
+    input: {
+      projectId: $projectId
+      parameters: $parameters
+      replaceExisting: $replaceExisting
+    }
+  ) {
+    projectId
+    errors {
+      message
+    }
+  }
+}
