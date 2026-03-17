@@ -39,7 +39,8 @@
     "prepare": "husky"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/test"
   ],
   "n8n": {
     "n8nNodesApiVersion": 1,
