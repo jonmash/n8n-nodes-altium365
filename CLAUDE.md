@@ -298,16 +298,43 @@ To test locally before publishing:
 
 ## Publishing to npm
 
-When ready to publish:
+Publishing is automated via GitHub Actions using npm trusted publishing (OIDC). This eliminates the need for npm tokens and provides cryptographic provenance attestations.
 
-1. Ensure package.json has correct author email and repository URL
-2. Run `npm run build` to ensure clean build
-3. Run `npm run lint` to verify no errors
-4. Update CHANGELOG.md with new version
-5. Commit changes
-6. Create git tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
-7. Run `npm publish`
-8. Push commits and tags: `git push && git push --tags`
+### Setup (One-time)
+
+Since the package is already published (v0.1.0), you can now configure trusted publishing:
+
+1. **Configure trusted publisher on npm:**
+   - Go to https://www.npmjs.com/package/@jonmash/n8n-nodes-altium365/access
+   - Under "Trusted Publisher" section, click "GitHub Actions"
+   - Fill in the details:
+     - **Organization or user:** jonmash
+     - **Repository:** n8n-nodes-altium365
+     - **Workflow filename:** publish.yml
+   - Click "Set up connection"
+
+2. **That's it!** No tokens needed. The workflow uses OIDC authentication.
+
+### Release Process
+
+1. Update version in package.json (e.g., `0.1.0` → `0.2.0`)
+2. Update CHANGELOG.md with new version and changes
+3. Commit changes: `git add . && git commit -m "Version bumped to 0.2.0"`
+4. Create and push tag:
+   ```bash
+   git tag -a v0.2.0 -m "Release v0.2.0"
+   git push && git push --tags
+   ```
+5. GitHub Actions automatically builds, tests, and publishes to npm with provenance
+
+Monitor workflow progress at: https://github.com/jonmash/n8n-nodes-altium365/actions
+
+### How Trusted Publishing Works
+
+- GitHub Actions generates a short-lived OIDC token proving the workflow identity
+- npm verifies the token matches your trusted publisher configuration
+- Package is published with cryptographic provenance attestation showing exactly how it was built
+- No long-lived tokens to manage or secure
 
 ## Dependencies
 
