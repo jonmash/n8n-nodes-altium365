@@ -1,6 +1,5 @@
 import type {
 	IAuthenticateGeneric,
-	ICredentialTestRequest,
 	ICredentialType,
 	INodeProperties,
 } from 'n8n-workflow';
@@ -45,18 +44,6 @@ export class Altium365NexarApi implements ICredentialType {
 		type: 'generic',
 		properties: {
 			qs: {},
-		},
-	};
-
-	test: ICredentialTestRequest = {
-		request: {
-			baseURL: 'https://identity.nexar.com',
-			url: '/connect/token',
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/x-www-form-urlencoded',
-			},
-			body: 'grant_type=client_credentials&client_id={{$credentials.clientId}}&client_secret={{$credentials.clientSecret}}&scope=design.domain',
 		},
 	};
 }
