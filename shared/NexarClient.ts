@@ -40,6 +40,7 @@ export class NexarClient {
 
 				console.log('[Altium365] Making GraphQL request to:', urlString);
 				console.log('[Altium365] Using credential type:', this.credentialType);
+				console.log('[Altium365] Request headers:', JSON.stringify(requestOptions.headers, null, 2));
 
 				try {
 					// Use requestOAuth2 for OAuth2 credentials instead of requestWithAuthentication
@@ -53,6 +54,11 @@ export class NexarClient {
 					);
 
 					console.log('[Altium365] Request successful, status:', (response as any).statusCode || 200);
+
+					// Log response headers to see if there are any hints
+					if ((response as any).headers) {
+						console.log('[Altium365] Response headers:', JSON.stringify((response as any).headers, null, 2));
+					}
 
 					// n8n returns { body, headers, statusCode, statusMessage }
 					const statusCode = (response as any).statusCode || 200;

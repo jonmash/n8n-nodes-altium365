@@ -41,13 +41,13 @@ export class Altium365NexarApi implements ICredentialType {
 			displayName: 'Scope',
 			name: 'scope',
 			type: 'hidden',
-			default: 'openid design.domain user.access offline_access',
+			default: 'openid design.domain user.access',
 		},
 		{
 			displayName: 'Auth URI Query Parameters',
 			name: 'authQueryParameters',
 			type: 'hidden',
-			default: 'access_type=offline',
+			default: '',
 		},
 		{
 			displayName: 'Authentication',

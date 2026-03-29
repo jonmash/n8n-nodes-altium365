@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-03-27
+
+### Fixed
+- Adjusted OAuth2 scopes to exactly match Nexar documentation: `openid design.domain user.access`
+- Removed `offline_access` scope which may not be supported by Nexar
+- Removed `access_type=offline` auth query parameter
+- Added request/response header logging for debugging OAuth token issues
+
 ## [0.2.5] - 2026-03-27
 
 ### Fixed
