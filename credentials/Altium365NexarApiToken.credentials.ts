@@ -81,6 +81,7 @@ export class Altium365NexarApiToken implements ICredentialType {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
+				'Authorization': '=Bearer {{$credentials.accessToken}}',
 			},
 			body: {
 				query: 'query { desWorkspaceInfos { url name } }',
