@@ -34,22 +34,44 @@ export class NexarClient {
 					url: urlString,
 					headers: options?.headers as Record<string, string>,
 					body: options?.body as string,
-					json: false, // Body is already JSON string
+					json: false, // Body is already JSON stringified by graphql-request
+					returnFullResponse: true, // Get status code and headers
 				};
 
-				const response = await this.context.helpers.requestWithAuthentication.call(
-					this.context,
-					this.credentialType,
-					requestOptions,
-				);
+				try {
+					const response = await this.context.helpers.requestWithAuthentication.call(
+						this.context,
+						this.credentialType,
+						requestOptions,
+					);
 
-				// Return a Response-like object for graphql-request
-				return {
-					ok: true,
-					status: 200,
-					text: async () => (typeof response === 'string' ? response : JSON.stringify(response)),
-					json: async () => (typeof response === 'string' ? JSON.parse(response) : response),
-				} as Response;
+					// n8n returns { body, headers, statusCode, statusMessage }
+					const statusCode = (response as any).statusCode || 200;
+					const body = (response as any).body || response;
+
+					// Return a Response-like object for graphql-request
+					return {
+						ok: statusCode >= 200 && statusCode < 300,
+						status: statusCode,
+						statusText: (response as any).statusMessage || 'OK',
+						text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+						json: async () => (typeof body === 'string' ? JSON.parse(body) : body),
+						headers: new Headers((response as any).headers || {}),
+					} as Response;
+				} catch (error) {
+					// Handle authentication errors or network errors
+					const errorMessage = error instanceof Error ? error.message : String(error);
+
+					// Return error response that graphql-request can handle
+					return {
+						ok: false,
+						status: 502,
+						statusText: 'Bad Gateway',
+						text: async () => JSON.stringify({ error: errorMessage }),
+						json: async () => ({ error: errorMessage }),
+						headers: new Headers(),
+					} as Response;
+				}
 			},
 		});
 
