@@ -90,9 +90,7 @@ export class Altium365Trigger implements INodeType {
 		const event = this.getNodeParameter('event') as string;
 		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
-
-		// Get the correct API endpoint for this workspace
-		const apiUrl = await NexarClient.getWorkspaceApiUrl(this, workspaceUrl, 'altium365NexarApi');
+		const apiUrl = credentials.apiEndpointUrl as string;
 
 		// Create client with OAuth2 credentials and workspace-specific API endpoint
 		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);

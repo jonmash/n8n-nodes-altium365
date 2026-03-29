@@ -20,6 +20,15 @@ export class Altium365NexarApi implements ICredentialType {
 			description: 'Your Altium 365 workspace URL',
 		},
 		{
+			displayName: 'API Endpoint URL',
+			name: 'apiEndpointUrl',
+			type: 'string',
+			default: '',
+			placeholder: 'https://uw.api.nexar.com/graphql',
+			required: true,
+			description: 'Your workspace-specific API endpoint URL (found by running the Python example or checking workspace location)',
+		},
+		{
 			displayName: 'Grant Type',
 			name: 'grantType',
 			type: 'hidden',
