@@ -1,4 +1,4 @@
-import type { IExecuteFunctions, IPollFunctions, IHttpRequestOptions } from 'n8n-workflow';
+import type { IExecuteFunctions, IPollFunctions, IHttpRequestOptions, IDataObject } from 'n8n-workflow';
 import { GraphQLClient } from 'graphql-request';
 import { getSdk } from './generated/graphql';
 
@@ -12,99 +12,50 @@ export class NexarClient {
 	private apiUrl: string;
 
 	private static readonly DEFAULT_GRAPHQL_ENDPOINT = 'https://api.nexar.com/graphql';
+	private static readonly TOKEN_URL = 'https://identity.nexar.com/connect/token';
+	private static readonly TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5 minutes
 
 	/**
-	 * Create a NexarClient using n8n's OAuth2 credential system
+	 * Create a NexarClient
 	 * @param context - n8n execution context (IExecuteFunctions or IPollFunctions)
-	 * @param credentialType - The credential type name (e.g., 'altium365NexarApi')
+	 * @param credentialType - The credential type name ('altium365NexarApi' or 'altium365NexarApiToken')
 	 * @param apiUrl - Optional API endpoint URL (defaults to api.nexar.com)
 	 */
-	constructor(context: ExecutionContext, credentialType: string = 'altium365NexarApi', apiUrl?: string) {
+	constructor(context: ExecutionContext, credentialType: string = 'altium365NexarApiToken', apiUrl?: string) {
 		this.context = context;
 		this.credentialType = credentialType;
 		this.apiUrl = apiUrl || NexarClient.DEFAULT_GRAPHQL_ENDPOINT;
 
-		console.log('[Altium365] NexarClient constructor called');
-		console.log('[Altium365] Credential type:', credentialType);
-		console.log('[Altium365] API URL:', this.apiUrl);
-
-		// Create a custom GraphQL client that uses n8n's OAuth2 request helper
+		// Create a custom GraphQL client that handles token refresh
 		this.graphqlClient = new GraphQLClient(this.apiUrl, {
 			headers: {
-				'User-Agent': 'n8n-nodes-altium365/0.2.0',
+				'User-Agent': 'n8n-nodes-altium365/0.3.3',
 			},
-			// Override the request method to use n8n's OAuth2 helper
 			fetch: async (url: string | URL | Request, options?: Record<string, any>) => {
 				const urlString = typeof url === 'string' ? url : url.toString();
+
+				// Ensure we have a valid token before making request
+				const accessToken = await this.getValidAccessToken();
+
+				// Add Authorization header
+				const headers = {
+					...(options?.headers || {}),
+					Authorization: `Bearer ${accessToken}`,
+					'Content-Type': 'application/json',
+				};
+
 				const requestOptions: IHttpRequestOptions = {
 					method: 'POST',
 					url: urlString,
-					headers: options?.headers as Record<string, string>,
+					headers,
 					body: options?.body as string,
 					json: false, // Body is already JSON stringified by graphql-request
-					returnFullResponse: true, // Get status code and headers
+					returnFullResponse: true,
 				};
 
-				console.log('[Altium365] Making GraphQL request to:', urlString);
-				console.log('[Altium365] Using credential type:', this.credentialType);
-				console.log('[Altium365] Request headers:', JSON.stringify(requestOptions.headers, null, 2));
-
-				// Try to get credential data to verify OAuth tokens are present
 				try {
-					const credentials = await this.context.getCredentials(this.credentialType);
-					console.log('[Altium365] Credential data keys:', Object.keys(credentials));
-					console.log('[Altium365] Has oauthTokenData:', 'oauthTokenData' in credentials);
-					if ('oauthTokenData' in credentials) {
-						const tokenData = credentials.oauthTokenData as any;
-						console.log('[Altium365] Token data keys:', Object.keys(tokenData));
-						console.log('[Altium365] Has access_token:', 'access_token' in tokenData);
-						console.log('[Altium365] Has refresh_token:', 'refresh_token' in tokenData);
-						console.log('[Altium365] Token type:', tokenData.token_type);
-						console.log('[Altium365] Granted scope:', tokenData.scope);
-						console.log('[Altium365] Expires in:', tokenData.expires_in);
+					const response = await this.context.helpers.request(requestOptions);
 
-						// Show first/last 20 chars of access token to verify it exists
-						if (tokenData.access_token) {
-							const token = tokenData.access_token as string;
-							console.log('[Altium365] Access token length:', token.length);
-							console.log('[Altium365] Access token start:', token.substring(0, 20) + '...');
-							console.log('[Altium365] Access token end:', '...' + token.substring(token.length - 20));
-
-							// Try to decode JWT to see claims (don't verify signature, just decode)
-							try {
-								const parts = token.split('.');
-								if (parts.length === 3) {
-									const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
-									console.log('[Altium365] JWT full payload:', JSON.stringify(payload, null, 2));
-								}
-							} catch (jwtError) {
-								console.error('[Altium365] Could not decode JWT:', jwtError);
-							}
-						}
-					}
-				} catch (credError) {
-					console.error('[Altium365] Error getting credentials:', credError);
-				}
-
-				try {
-					// Use requestOAuth2 for OAuth2 credentials instead of requestWithAuthentication
-					const response = await this.context.helpers.requestOAuth2.call(
-						this.context,
-						this.credentialType,
-						requestOptions,
-						{
-							tokenType: 'Bearer',
-						},
-					);
-
-					console.log('[Altium365] Request successful, status:', (response as any).statusCode || 200);
-
-					// Log response headers to see if there are any hints
-					if ((response as any).headers) {
-						console.log('[Altium365] Response headers:', JSON.stringify((response as any).headers, null, 2));
-					}
-
-					// n8n returns { body, headers, statusCode, statusMessage }
 					const statusCode = (response as any).statusCode || 200;
 					const body = (response as any).body || response;
 
@@ -118,41 +69,109 @@ export class NexarClient {
 						headers: new Headers((response as any).headers || {}),
 					} as Response;
 				} catch (error) {
-					// Handle authentication errors or network errors
 					const errorMessage = error instanceof Error ? error.message : String(error);
-					const errorStack = error instanceof Error ? error.stack : '';
-
 					console.error('[Altium365] NexarClient fetch error:', errorMessage);
-					console.error('[Altium365] Error stack:', errorStack);
-					console.error('[Altium365] Request URL:', urlString);
-					console.error('[Altium365] Credential type:', this.credentialType);
-
-					// Try to extract more details from the error object
-					if (error && typeof error === 'object') {
-						// Log the full error object (excluding stack to reduce noise)
-						const errorDetails = { ...error };
-						delete (errorDetails as any).stack;
-						console.error('[Altium365] Full error object:', JSON.stringify(errorDetails, null, 2));
-
-						// Check for common error properties
-						if ('response' in error) {
-							console.error('[Altium365] Error response:', JSON.stringify((error as any).response, null, 2));
-						}
-						if ('body' in error) {
-							console.error('[Altium365] Error body:', JSON.stringify((error as any).body, null, 2));
-						}
-						if ('statusCode' in error) {
-							console.error('[Altium365] Error status code:', (error as any).statusCode);
-						}
-					}
-
-					// Throw the error so graphql-request can handle it properly
 					throw error;
 				}
 			},
 		});
 
 		this.sdk = getSdk(this.graphqlClient);
+	}
+
+	/**
+	 * Get a valid access token, refreshing if needed
+	 */
+	private async getValidAccessToken(): Promise<string> {
+		const credentials = await this.context.getCredentials(this.credentialType);
+
+		const accessToken = credentials.accessToken as string;
+		const refreshToken = credentials.refreshToken as string;
+		const tokenExpiry = credentials.tokenExpiry as number;
+
+		if (!accessToken || !refreshToken) {
+			throw new Error('Access token and refresh token are required. Please run get-tokens.js to obtain tokens.');
+		}
+
+		const now = Date.now();
+		const expiresAt = tokenExpiry * 1000; // Convert to milliseconds
+
+		// Check if token is expired or will expire soon (within 5 minutes)
+		if (now + NexarClient.TOKEN_REFRESH_BUFFER_MS >= expiresAt) {
+			console.log('[Altium365] Token expired or expiring soon, refreshing...');
+			return await this.refreshAccessToken(credentials);
+		}
+
+		return accessToken;
+	}
+
+	/**
+	 * Refresh the access token using the refresh token
+	 */
+	private async refreshAccessToken(credentials: IDataObject): Promise<string> {
+		const clientId = credentials.clientId as string;
+		const clientSecret = credentials.clientSecret as string;
+		const refreshToken = credentials.refreshToken as string;
+
+		if (!clientId || !clientSecret) {
+			throw new Error('Client ID and Client Secret are required for token refresh');
+		}
+
+		const tokenParams = new URLSearchParams({
+			grant_type: 'refresh_token',
+			client_id: clientId,
+			client_secret: clientSecret,
+			refresh_token: refreshToken,
+		});
+
+		try {
+			const response = await this.context.helpers.request({
+				method: 'POST',
+				url: NexarClient.TOKEN_URL,
+				headers: {
+					'Content-Type': 'application/x-www-form-urlencoded',
+				},
+				body: tokenParams.toString(),
+				json: false,
+			});
+
+			const tokenData = typeof response === 'string' ? JSON.parse(response) : response;
+
+			if (tokenData.error) {
+				throw new Error(`Token refresh failed: ${tokenData.error_description || tokenData.error}`);
+			}
+
+			const newAccessToken = tokenData.access_token;
+			const newRefreshToken = tokenData.refresh_token || refreshToken; // Some OAuth servers don't return new refresh token
+			const expiresIn = tokenData.expires_in || 86400; // Default to 24 hours if not provided
+			const newTokenExpiry = Math.floor(Date.now() / 1000) + expiresIn;
+
+			// Update the stored credentials with new tokens
+			// Note: n8n doesn't provide a direct way to update credentials from node code
+			// The workaround is to update the credential via the credential update mechanism
+			// For now, we log a warning and let the user know they need to update manually if this fails
+			console.log('[Altium365] Token refreshed successfully');
+			console.log('[Altium365] New token expires at:', new Date(newTokenExpiry * 1000).toISOString());
+
+			// Try to update credentials if possible
+			// Note: This may not work depending on n8n version and execution context
+			try {
+				// Store updated tokens back to credential
+				credentials.accessToken = newAccessToken;
+				credentials.refreshToken = newRefreshToken;
+				credentials.tokenExpiry = newTokenExpiry;
+			} catch (updateError) {
+				console.warn('[Altium365] Could not update stored credentials:', updateError);
+				console.warn('[Altium365] Token refresh succeeded but credentials not persisted. You may need to run get-tokens.js again when token expires.');
+			}
+
+			return newAccessToken;
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			throw new Error(`Failed to refresh access token: ${errorMessage}`, {
+				cause: error,
+			});
+		}
 	}
 
 	/**
@@ -167,51 +186,5 @@ export class NexarClient {
 	 */
 	query<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
 		return this.graphqlClient.request<T>(query, variables);
-	}
-
-	/**
-	 * Get the correct API endpoint URL for a workspace
-	 * @param context - n8n execution context
-	 * @param workspaceUrl - The workspace URL to look up
-	 * @param credentialType - The credential type name
-	 * @returns The workspace's API service URL
-	 */
-	static async getWorkspaceApiUrl(
-		context: ExecutionContext,
-		workspaceUrl: string,
-		credentialType: string = 'altium365NexarApi',
-	): Promise<string> {
-		console.log('[Altium365] Looking up API URL for workspace:', workspaceUrl);
-
-		// Create temporary client with default endpoint to query workspaces
-		const tempClient = new NexarClient(context, credentialType);
-		const sdk = tempClient.getSdk();
-
-		try {
-			const result = await sdk.GetWorkspaceInfos();
-			const workspaces = result.desWorkspaceInfos;
-
-			console.log('[Altium365] Found', workspaces.length, 'workspace(s)');
-
-			// Find the workspace matching the user's URL
-			const workspace = workspaces.find((ws) => ws.url === workspaceUrl);
-
-			if (!workspace) {
-				console.error('[Altium365] Workspace not found:', workspaceUrl);
-				console.error('[Altium365] Available workspaces:', workspaces.map((ws) => ws.url));
-				throw new Error(`Workspace not found: ${workspaceUrl}`);
-			}
-
-			const apiUrl = workspace.location?.apiServiceUrl;
-			if (!apiUrl) {
-				throw new Error(`Workspace ${workspaceUrl} does not have an API service URL`);
-			}
-
-			console.log('[Altium365] Workspace API URL:', apiUrl);
-			return apiUrl;
-		} catch (error) {
-			console.error('[Altium365] Error getting workspace API URL:', error);
-			throw error;
-		}
 	}
 }

@@ -1,6 +1,6 @@
 {
   "name": "@jonmash/n8n-nodes-altium365",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "n8n community node for Altium 365 via Nexar API",
   "keywords": [
     "n8n-community-node-package",
@@ -45,7 +45,8 @@
   "n8n": {
     "n8nNodesApiVersion": 1,
     "credentials": [
-      "dist/credentials/Altium365NexarApi.credentials.js"
+      "dist/credentials/Altium365NexarApi.credentials.js",
+      "dist/credentials/Altium365NexarApiToken.credentials.js"
     ],
     "nodes": [
       "dist/nodes/Altium365/Altium365.node.js",
