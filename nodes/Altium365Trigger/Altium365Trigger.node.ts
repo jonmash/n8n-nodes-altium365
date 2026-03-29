@@ -91,10 +91,8 @@ export class Altium365Trigger implements INodeType {
 		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
 
-		const client = new NexarClient(
-			credentials.clientId as string,
-			credentials.clientSecret as string,
-		);
+		// Create client with OAuth2 credentials via n8n's authentication system
+		const client = new NexarClient(this, 'altium365NexarApi');
 
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
 
@@ -127,7 +125,7 @@ export class Altium365Trigger implements INodeType {
 	): Promise<INodeExecutionData[][] | null> {
 		const projectId = this.getNodeParameter('projectId', '') as string;
 		const includeFileChanges = this.getNodeParameter('includeFileChanges', true) as boolean;
-		const sdk = await client.getSdk();
+		const sdk = client.getSdk();
 
 		// Initialize storage for last known revision IDs
 		if (!staticData.lastRevisions) {
@@ -233,7 +231,7 @@ export class Altium365Trigger implements INodeType {
 		workspaceUrl: string,
 		staticData: WorkflowStaticData,
 	): Promise<INodeExecutionData[][] | null> {
-		const sdk = await client.getSdk();
+		const sdk = client.getSdk();
 
 		// Initialize storage for known project IDs
 		if (!staticData.lastProjectIds) {

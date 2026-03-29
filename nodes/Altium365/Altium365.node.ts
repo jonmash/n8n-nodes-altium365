@@ -1,8 +1,5 @@
 import type {
-	ICredentialsDecrypted,
-	ICredentialTestFunctions,
 	IExecuteFunctions,
-	INodeCredentialTestResult,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
@@ -29,7 +26,6 @@ export class Altium365 implements INodeType {
 			{
 				name: 'altium365NexarApi',
 				required: true,
-				testedBy: 'altium365ApiTest',
 			},
 		],
 		properties: [
@@ -170,74 +166,6 @@ export class Altium365 implements INodeType {
 		],
 	};
 
-	methods = {
-		credentialTest: {
-			async altium365ApiTest(
-				this: ICredentialTestFunctions,
-				credential: ICredentialsDecrypted,
-			): Promise<INodeCredentialTestResult> {
-				if (!credential.data) {
-					return {
-						status: 'Error',
-						message: 'Credential data is missing',
-					};
-				}
-
-				const clientId = credential.data.clientId as string;
-				const clientSecret = credential.data.clientSecret as string;
-
-				const params = new URLSearchParams({
-					grant_type: 'client_credentials',
-					client_id: clientId,
-					client_secret: clientSecret,
-					scope: 'design.domain',
-				});
-
-				try {
-					console.log('[Altium365] Testing credentials...');
-					console.log(`[Altium365] Client ID: ${clientId.substring(0, 8)}...`);
-
-					const response = await fetch('https://identity.nexar.com/connect/token', {
-						method: 'POST',
-						headers: {
-							'Content-Type': 'application/x-www-form-urlencoded',
-						},
-						body: params.toString(),
-					});
-
-					console.log(`[Altium365] Response status: ${response.status} ${response.statusText}`);
-
-					if (!response.ok) {
-						const errorText = await response.text();
-						console.error(`[Altium365] Error response: ${errorText}`);
-						console.error(`[Altium365] Request body: ${params.toString()}`);
-
-						return {
-							status: 'Error',
-							message: `OAuth authentication failed: ${response.status} ${response.statusText}. ${errorText}`,
-						};
-					}
-
-					await response.json(); // Validate response is JSON
-					console.log('[Altium365] OAuth token acquired successfully');
-
-					return {
-						status: 'OK',
-						message: 'Authentication successful!',
-					};
-				} catch (error) {
-					const errorMessage = error instanceof Error ? error.message : String(error);
-					console.error('[Altium365] Credential test error:', errorMessage);
-
-					return {
-						status: 'Error',
-						message: `Connection test failed: ${errorMessage}`,
-					};
-				}
-			},
-		},
-	};
-
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
@@ -245,18 +173,17 @@ export class Altium365 implements INodeType {
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
 
-		// Get credentials
+		// Get credentials for workspace URL
 		const credentials = await this.getCredentials('altium365NexarApi');
-		const client = new NexarClient(
-			credentials.clientId as string,
-			credentials.clientSecret as string,
-		);
+
+		// Create client with OAuth2 credentials via n8n's authentication system
+		const client = new NexarClient(this, 'altium365NexarApi');
 
 		for (let i = 0; i < items.length; i++) {
 			try {
 				if (resource === 'workspace') {
 					if (operation === 'getAll') {
-						const sdk = await client.getSdk();
+						const sdk = client.getSdk();
 						const result = await sdk.GetWorkspaceInfos();
 
 						if (!result.desWorkspaceInfos) {

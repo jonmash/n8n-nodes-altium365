@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-27
+
+### BREAKING CHANGES
+- **OAuth2 Authentication Required**: Switched from OAuth2 Client Credentials flow to Authorization Code flow
+- Users must reconnect their credentials and authenticate via browser
+- Nexar requires Authorization Code flow for design.domain scope access
+
+### Changed
+- Credentials now extend n8n's oAuth2Api for proper OAuth2 Authorization Code support
+- NexarClient refactored to use n8n's requestWithAuthentication helper
+- Automatic token refresh handled by n8n's OAuth2 system
+- User must authorize application access via Nexar's consent screen
+
+### Added
+- OAuth2 redirect URL configuration for proper authentication flow
+- Scopes: openid, design.domain, user.access, offline_access
+
+### Fixed
+- Authentication now works with Nexar's API requirements
+- Resolved "unauthorized_client" error from client credentials flow
+
+### Notes
+- Existing credentials from v0.1.x will need to be recreated
+- Users must configure redirect URL in Nexar portal to match n8n's OAuth callback
+- Unit tests temporarily disabled pending rewrite for OAuth2 flow
+
 ## [0.1.5] - 2026-03-27
 
 ### Added
