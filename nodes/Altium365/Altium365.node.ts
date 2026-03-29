@@ -175,9 +175,17 @@ export class Altium365 implements INodeType {
 
 		// Get credentials for workspace URL
 		const credentials = await this.getCredentials('altium365NexarApi');
+		const workspaceUrl = credentials.workspaceUrl as string;
 
-		// Create client with OAuth2 credentials via n8n's authentication system
-		const client = new NexarClient(this, 'altium365NexarApi');
+		// Get the correct API endpoint for this workspace
+		// (workspace operations can use default, but project operations need workspace-specific endpoint)
+		let apiUrl: string | undefined;
+		if (resource === 'project') {
+			apiUrl = await NexarClient.getWorkspaceApiUrl(this, workspaceUrl, 'altium365NexarApi');
+		}
+
+		// Create client with OAuth2 credentials and workspace-specific API endpoint (if needed)
+		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 
 		for (let i = 0; i < items.length; i++) {
 			try {

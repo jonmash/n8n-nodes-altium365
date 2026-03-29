@@ -91,8 +91,11 @@ export class Altium365Trigger implements INodeType {
 		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
 
-		// Create client with OAuth2 credentials via n8n's authentication system
-		const client = new NexarClient(this, 'altium365NexarApi');
+		// Get the correct API endpoint for this workspace
+		const apiUrl = await NexarClient.getWorkspaceApiUrl(this, workspaceUrl, 'altium365NexarApi');
+
+		// Create client with OAuth2 credentials and workspace-specific API endpoint
+		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
 

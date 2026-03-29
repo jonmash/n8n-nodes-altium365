@@ -9,23 +9,27 @@ export class NexarClient {
 	private sdk: ReturnType<typeof getSdk>;
 	private context: ExecutionContext;
 	private credentialType: string;
+	private apiUrl: string;
 
-	private static readonly GRAPHQL_ENDPOINT = 'https://api.nexar.com/graphql';
+	private static readonly DEFAULT_GRAPHQL_ENDPOINT = 'https://api.nexar.com/graphql';
 
 	/**
 	 * Create a NexarClient using n8n's OAuth2 credential system
 	 * @param context - n8n execution context (IExecuteFunctions or IPollFunctions)
 	 * @param credentialType - The credential type name (e.g., 'altium365NexarApi')
+	 * @param apiUrl - Optional API endpoint URL (defaults to api.nexar.com)
 	 */
-	constructor(context: ExecutionContext, credentialType: string = 'altium365NexarApi') {
+	constructor(context: ExecutionContext, credentialType: string = 'altium365NexarApi', apiUrl?: string) {
 		this.context = context;
 		this.credentialType = credentialType;
+		this.apiUrl = apiUrl || NexarClient.DEFAULT_GRAPHQL_ENDPOINT;
 
 		console.log('[Altium365] NexarClient constructor called');
 		console.log('[Altium365] Credential type:', credentialType);
+		console.log('[Altium365] API URL:', this.apiUrl);
 
 		// Create a custom GraphQL client that uses n8n's OAuth2 request helper
-		this.graphqlClient = new GraphQLClient(NexarClient.GRAPHQL_ENDPOINT, {
+		this.graphqlClient = new GraphQLClient(this.apiUrl, {
 			headers: {
 				'User-Agent': 'n8n-nodes-altium365/0.2.0',
 			},
@@ -163,5 +167,51 @@ export class NexarClient {
 	 */
 	query<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
 		return this.graphqlClient.request<T>(query, variables);
+	}
+
+	/**
+	 * Get the correct API endpoint URL for a workspace
+	 * @param context - n8n execution context
+	 * @param workspaceUrl - The workspace URL to look up
+	 * @param credentialType - The credential type name
+	 * @returns The workspace's API service URL
+	 */
+	static async getWorkspaceApiUrl(
+		context: ExecutionContext,
+		workspaceUrl: string,
+		credentialType: string = 'altium365NexarApi',
+	): Promise<string> {
+		console.log('[Altium365] Looking up API URL for workspace:', workspaceUrl);
+
+		// Create temporary client with default endpoint to query workspaces
+		const tempClient = new NexarClient(context, credentialType);
+		const sdk = tempClient.getSdk();
+
+		try {
+			const result = await sdk.GetWorkspaceInfos();
+			const workspaces = result.desWorkspaceInfos;
+
+			console.log('[Altium365] Found', workspaces.length, 'workspace(s)');
+
+			// Find the workspace matching the user's URL
+			const workspace = workspaces.find((ws) => ws.url === workspaceUrl);
+
+			if (!workspace) {
+				console.error('[Altium365] Workspace not found:', workspaceUrl);
+				console.error('[Altium365] Available workspaces:', workspaces.map((ws) => ws.url));
+				throw new Error(`Workspace not found: ${workspaceUrl}`);
+			}
+
+			const apiUrl = workspace.location?.apiServiceUrl;
+			if (!apiUrl) {
+				throw new Error(`Workspace ${workspaceUrl} does not have an API service URL`);
+			}
+
+			console.log('[Altium365] Workspace API URL:', apiUrl);
+			return apiUrl;
+		} catch (error) {
+			console.error('[Altium365] Error getting workspace API URL:', error);
+			throw error;
+		}
 	}
 }

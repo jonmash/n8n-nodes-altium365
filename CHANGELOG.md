@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-29
+
+### Fixed
+- **Critical**: Now uses workspace-specific API endpoints (e.g., uw.api.nexar.com) instead of hardcoded api.nexar.com
+- Queries desWorkspaceInfos to get correct regional API endpoint for each workspace
+- Fixes "Token validation failed" errors caused by audience claim mismatch
+- Each workspace's token is validated against its specific regional API endpoint
+
+### Changed
+- NexarClient now accepts optional apiUrl parameter
+- Added static getWorkspaceApiUrl() method to resolve workspace-specific endpoints
+- Action and trigger nodes now dynamically discover correct API URL before operations
+
 ## [0.3.0] - 2026-03-29
 
 ### Fixed

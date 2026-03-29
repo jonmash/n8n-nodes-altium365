@@ -3,5 +3,9 @@ query GetWorkspaceInfos {
   desWorkspaceInfos {
     url
     name
+    description
+    location {
+      apiServiceUrl
+    }
   }
 }
