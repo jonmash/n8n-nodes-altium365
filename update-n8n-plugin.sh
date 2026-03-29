@@ -22,23 +22,49 @@ CONTAINER_NAME=$(docker ps --filter "id=$CONTAINER_ID" --format "{{.Names}}")
 echo "✅ Found n8n container: $CONTAINER_NAME ($CONTAINER_ID)"
 
 echo ""
-echo "📦 Updating @jonmash/n8n-nodes-altium365..."
+echo "📦 Checking current version..."
 
-# Update the npm package inside the container
-docker exec -it "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm update @jonmash/n8n-nodes-altium365"
+# Get current version
+CURRENT_VERSION=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm list @jonmash/n8n-nodes-altium365 --depth=0 2>/dev/null | grep @jonmash/n8n-nodes-altium365 | cut -d@ -f3" || echo "unknown")
+echo "📌 Current version: $CURRENT_VERSION"
 
-if [ $? -ne 0 ]; then
+echo ""
+echo "🔍 Updating @jonmash/n8n-nodes-altium365..."
+
+# Capture npm update output
+UPDATE_OUTPUT=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm update @jonmash/n8n-nodes-altium365 2>&1")
+UPDATE_EXIT_CODE=$?
+
+if [ $UPDATE_EXIT_CODE -ne 0 ]; then
     echo "❌ Error: Failed to update npm package"
+    echo "$UPDATE_OUTPUT"
     exit 1
 fi
 
-echo "✅ Package updated successfully"
+# Get new version
+NEW_VERSION=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm list @jonmash/n8n-nodes-altium365 --depth=0 2>/dev/null | grep @jonmash/n8n-nodes-altium365 | cut -d@ -f3" || echo "unknown")
+
+echo "📌 New version: $NEW_VERSION"
+
+# Check if version changed
+if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+    echo ""
+    echo "ℹ️  No update available - already on version $CURRENT_VERSION"
+    echo ""
+    echo "💡 If you just published a new version, npm registry may need a few minutes to sync"
+    echo "   Try again in 1-2 minutes, or check: https://www.npmjs.com/package/@jonmash/n8n-nodes-altium365"
+    echo ""
+    echo "⏭️  Skipping container restart (no changes detected)"
+    exit 0
+fi
+
+echo "✅ Package updated: $CURRENT_VERSION → $NEW_VERSION"
 
 echo ""
 echo "🔄 Restarting n8n container..."
 
 # Restart the container
-docker restart "$CONTAINER_ID"
+docker restart "$CONTAINER_ID" > /dev/null
 
 if [ $? -ne 0 ]; then
     echo "❌ Error: Failed to restart container"
@@ -52,5 +78,5 @@ echo "⏳ Waiting for n8n to be ready..."
 sleep 5
 
 echo ""
-echo "🎉 Done! n8n should be ready at your usual URL"
-echo "📝 Check the version with: docker exec $CONTAINER_ID npm list @jonmash/n8n-nodes-altium365"
+echo "🎉 Done! Updated to version $NEW_VERSION"
+echo "📝 n8n should be ready at your usual URL"

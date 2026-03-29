@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-03-29
+
+### Changed
+- Enhanced error logging in NexarClient to capture full error details from OAuth2 requests
+- Added logging for error response body, status code, and full error object structure
+- Improved debugging capabilities for authentication issues
+
 ## [0.2.7] - 2026-03-27
 
 ### Fixed

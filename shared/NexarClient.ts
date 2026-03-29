@@ -83,6 +83,25 @@ export class NexarClient {
 					console.error('[Altium365] Request URL:', urlString);
 					console.error('[Altium365] Credential type:', this.credentialType);
 
+					// Try to extract more details from the error object
+					if (error && typeof error === 'object') {
+						// Log the full error object (excluding stack to reduce noise)
+						const errorDetails = { ...error };
+						delete (errorDetails as any).stack;
+						console.error('[Altium365] Full error object:', JSON.stringify(errorDetails, null, 2));
+
+						// Check for common error properties
+						if ('response' in error) {
+							console.error('[Altium365] Error response:', JSON.stringify((error as any).response, null, 2));
+						}
+						if ('body' in error) {
+							console.error('[Altium365] Error body:', JSON.stringify((error as any).body, null, 2));
+						}
+						if ('statusCode' in error) {
+							console.error('[Altium365] Error status code:', (error as any).statusCode);
+						}
+					}
+
 					// Throw the error so graphql-request can handle it properly
 					throw error;
 				}
