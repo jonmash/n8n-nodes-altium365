@@ -38,12 +38,17 @@ export class NexarClient {
 					returnFullResponse: true, // Get status code and headers
 				};
 
+				console.log('[Altium365] Making GraphQL request to:', urlString);
+				console.log('[Altium365] Using credential type:', this.credentialType);
+
 				try {
 					const response = await this.context.helpers.requestWithAuthentication.call(
 						this.context,
 						this.credentialType,
 						requestOptions,
 					);
+
+					console.log('[Altium365] Request successful, status:', (response as any).statusCode || 200);
 
 					// n8n returns { body, headers, statusCode, statusMessage }
 					const statusCode = (response as any).statusCode || 200;
@@ -61,16 +66,15 @@ export class NexarClient {
 				} catch (error) {
 					// Handle authentication errors or network errors
 					const errorMessage = error instanceof Error ? error.message : String(error);
+					const errorStack = error instanceof Error ? error.stack : '';
 
-					// Return error response that graphql-request can handle
-					return {
-						ok: false,
-						status: 502,
-						statusText: 'Bad Gateway',
-						text: async () => JSON.stringify({ error: errorMessage }),
-						json: async () => ({ error: errorMessage }),
-						headers: new Headers(),
-					} as Response;
+					console.error('[Altium365] NexarClient fetch error:', errorMessage);
+					console.error('[Altium365] Error stack:', errorStack);
+					console.error('[Altium365] Request URL:', urlString);
+					console.error('[Altium365] Credential type:', this.credentialType);
+
+					// Throw the error so graphql-request can handle it properly
+					throw error;
 				}
 			},
 		});
