@@ -42,10 +42,14 @@ export class NexarClient {
 				console.log('[Altium365] Using credential type:', this.credentialType);
 
 				try {
-					const response = await this.context.helpers.requestWithAuthentication.call(
+					// Use requestOAuth2 for OAuth2 credentials instead of requestWithAuthentication
+					const response = await this.context.helpers.requestOAuth2.call(
 						this.context,
 						this.credentialType,
 						requestOptions,
+						{
+							tokenType: 'Bearer',
+						},
 					);
 
 					console.log('[Altium365] Request successful, status:', (response as any).statusCode || 200);
