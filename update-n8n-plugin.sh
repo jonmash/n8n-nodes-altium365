@@ -29,10 +29,13 @@ CURRENT_VERSION=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes &&
 echo "📌 Current version: $CURRENT_VERSION"
 
 echo ""
+echo "🧹 Clearing npm cache..."
+docker exec "$CONTAINER_ID" sh -c "npm cache clean --force" > /dev/null 2>&1
+
 echo "🔍 Updating @jonmash/n8n-nodes-altium365..."
 
-# Capture npm update output
-UPDATE_OUTPUT=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm update @jonmash/n8n-nodes-altium365 2>&1")
+# Capture npm update output - use install with @latest to force fresh fetch
+UPDATE_OUTPUT=$(docker exec "$CONTAINER_ID" sh -c "cd /home/node/.n8n/nodes && npm install @jonmash/n8n-nodes-altium365@latest --force 2>&1")
 UPDATE_EXIT_CODE=$?
 
 if [ $UPDATE_EXIT_CODE -ne 0 ]; then
