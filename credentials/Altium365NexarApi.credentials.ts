@@ -26,7 +26,8 @@ export class Altium365NexarApi implements ICredentialType {
 			default: '',
 			placeholder: 'https://uw.api.nexar.com/graphql',
 			required: true,
-			description: 'Your workspace-specific API endpoint URL (found by running the Python example or checking workspace location)',
+			description:
+				'Your workspace-specific API endpoint URL (found by running the Python example or checking workspace location)',
 		},
 		{
 			displayName: 'Grant Type',
@@ -51,12 +52,6 @@ export class Altium365NexarApi implements ICredentialType {
 			name: 'scope',
 			type: 'hidden',
 			default: 'openid profile email design.domain user.access offline_access',
-		},
-		{
-			displayName: 'Auth URI Query Parameters',
-			name: 'authQueryParameters',
-			type: 'hidden',
-			default: 'access_type=offline&prompt=consent&audience=https://api.nexar.com',
 		},
 		{
 			displayName: 'Authentication',

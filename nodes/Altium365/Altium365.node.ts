@@ -24,7 +24,7 @@ export class Altium365 implements INodeType {
 		outputs: ['main'],
 		credentials: [
 			{
-				name: 'altium365NexarApiToken',
+				name: 'altium365NexarApi',
 				required: true,
 			},
 		],
@@ -173,12 +173,10 @@ export class Altium365 implements INodeType {
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
 
-		// Get credentials for API endpoint
-		const credentials = await this.getCredentials('altium365NexarApiToken');
+		const credentials = await this.getCredentials('altium365NexarApi');
 		const apiUrl = credentials.apiEndpointUrl as string;
 
-		// Create client with custom token credentials and workspace-specific API endpoint
-		const client = new NexarClient(this, 'altium365NexarApiToken', apiUrl);
+		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 
 		for (let i = 0; i < items.length; i++) {
 			try {

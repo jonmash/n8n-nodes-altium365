@@ -30,7 +30,7 @@ export class Altium365Trigger implements INodeType {
 		outputs: ['main'],
 		credentials: [
 			{
-				name: 'altium365NexarApiToken',
+				name: 'altium365NexarApi',
 				required: true,
 			},
 		],
@@ -88,12 +88,11 @@ export class Altium365Trigger implements INodeType {
 
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
 		const event = this.getNodeParameter('event') as string;
-		const credentials = await this.getCredentials('altium365NexarApiToken');
+		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
 		const apiUrl = credentials.apiEndpointUrl as string;
 
-		// Create client with custom token credentials and workspace-specific API endpoint
-		const client = new NexarClient(this, 'altium365NexarApiToken', apiUrl);
+		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
 
