@@ -86,42 +86,14 @@ export class Altium365Trigger implements INodeType {
 				description: 'Whether to include the list of changed files in the output',
 			},
 
-			// Poll interval throttle
-			{
-				displayName: 'Minimum Poll Interval',
-				name: 'pollIntervalMinutes',
-				type: 'options',
-				options: [
-					{ name: '1 Minute', value: 1 },
-					{ name: '5 Minutes', value: 5 },
-					{ name: '10 Minutes', value: 10 },
-					{ name: '15 Minutes', value: 15 },
-					{ name: '30 Minutes', value: 30 },
-					{ name: '1 Hour', value: 60 },
-				],
-				default: 5,
-				description:
-					'Minimum time between API polls. Set n8n polling to "Every Minute" and this controls the actual interval.',
-			},
 		],
 	};
 
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
 		const event = this.getNodeParameter('event') as string;
-		const pollIntervalMinutes = this.getNodeParameter('pollIntervalMinutes', 5) as number;
+		console.log(`[Altium365Trigger] poll() running, event=${event}`);
 
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
-
-		// Throttle: skip if not enough time has passed since last poll
-		if (workflowStaticData.lastPollTime) {
-			const elapsed =
-				(Date.now() - new Date(workflowStaticData.lastPollTime).getTime()) / 60000;
-			if (elapsed < pollIntervalMinutes) {
-				return null;
-			}
-		}
-
-		console.log(`[Altium365Trigger] poll() running, event=${event}`);
 
 		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
