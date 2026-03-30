@@ -291,13 +291,9 @@ export class Altium365Trigger implements INodeType {
 
 				const lastKnownRevision = staticData.lastRevisions[project.id];
 
-				if (
-					!isFirstRun &&
-					lastKnownRevision &&
-					lastKnownRevision !== latestRevision.revisionId
-				) {
+				if (!isFirstRun && lastKnownRevision !== latestRevision.revisionId) {
 					console.log(
-						`[Altium365Trigger] CHANGE in "${project.name}": ${lastKnownRevision} -> ${latestRevision.revisionId}`,
+						`[Altium365Trigger] CHANGE in "${project.name}": ${lastKnownRevision || '(new)'} -> ${latestRevision.revisionId}`,
 					);
 					const commitData: IDataObject = {
 						projectId: project.id,
