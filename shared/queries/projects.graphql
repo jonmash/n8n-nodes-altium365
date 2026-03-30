@@ -109,6 +109,33 @@ query GetCommitHistory($projectId: ID!, $first: Int, $after: String) {
   }
 }
 
+# Get projects with their latest revision (for trigger polling - single query instead of N+1)
+query GetProjectsWithRevisions($workspaceUrl: String!, $first: Int, $after: String) {
+  desProjects(workspaceUrl: $workspaceUrl, first: $first, after: $after) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      id
+      projectId
+      name
+      updatedAt
+      latestRevision {
+        revisionId
+        message
+        author
+        createdAt
+        files {
+          kind
+          path
+        }
+      }
+    }
+  }
+}
+
 # Update project parameters
 mutation UpdateProjectParameters($projectId: ID!, $parameters: [DesProjectParameterInput!]!, $replaceExisting: Boolean) {
   desUpdateProjectParameters(

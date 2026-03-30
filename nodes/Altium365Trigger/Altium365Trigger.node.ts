@@ -67,7 +67,8 @@ export class Altium365Trigger implements INodeType {
 					},
 				},
 				default: '',
-				description: 'Specific project ID to monitor. Leave empty to monitor all projects in workspace.',
+				description:
+					'Full project ID (grid:workspace:...:design:project/...) to monitor. Leave empty to monitor all projects.',
 			},
 
 			// Include file changes option
@@ -98,7 +99,9 @@ export class Altium365Trigger implements INodeType {
 		const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
-		console.log(`[Altium365Trigger] staticData=${JSON.stringify(workflowStaticData)}`);
+		console.log(
+			`[Altium365Trigger] staticData keys=${Object.keys(workflowStaticData).join(',')} revisionCount=${Object.keys(workflowStaticData.lastRevisions || {}).length}`,
+		);
 
 		if (event === 'projectCommitted') {
 			return await Altium365Trigger.prototype.pollProjectCommitted.call(
@@ -129,43 +132,39 @@ export class Altium365Trigger implements INodeType {
 	): Promise<INodeExecutionData[][] | null> {
 		const projectId = this.getNodeParameter('projectId', '') as string;
 		const includeFileChanges = this.getNodeParameter('includeFileChanges', true) as boolean;
-		console.log(
-			`[Altium365Trigger] pollProjectCommitted: projectId=${projectId || '(all)'} includeFileChanges=${includeFileChanges}`,
-		);
 		const sdk = client.getSdk();
 
-		// Initialize storage for last known revision IDs
+		const isFirstRun = !staticData.lastRevisions;
 		if (!staticData.lastRevisions) {
 			staticData.lastRevisions = {};
-			console.log('[Altium365Trigger] Initialized lastRevisions (first run)');
+			console.log('[Altium365Trigger] First run - establishing baseline');
 		}
 
 		const returnData: INodeExecutionData[] = [];
 
 		if (projectId) {
 			// Monitor a specific project
-			console.log(`[Altium365Trigger] Fetching latest commit for project ${projectId}`);
+			console.log(`[Altium365Trigger] Fetching single project: ${projectId}`);
 			const result = await sdk.GetLatestCommit({ projectId });
 
 			if (!result.desProjectById) {
-				throw new NodeOperationError(this.getNode(), `Project ${projectId} not found`);
+				throw new NodeOperationError(
+					this.getNode(),
+					`Project not found. Make sure you're using the full grid ID (e.g. grid:workspace:...:design:project/...)`,
+				);
 			}
 
 			const project = result.desProjectById;
 			const latestRevision = project.latestRevision;
-			console.log(
-				`[Altium365Trigger] Project "${project.name}" latestRevision=${latestRevision?.revisionId || 'null'}`,
-			);
 
 			if (latestRevision) {
 				const lastKnownRevision = staticData.lastRevisions[projectId];
 				console.log(
-					`[Altium365Trigger] Comparing: stored=${lastKnownRevision || '(none)'} current=${latestRevision.revisionId}`,
+					`[Altium365Trigger] "${project.name}": stored=${lastKnownRevision || '(none)'} current=${latestRevision.revisionId}`,
 				);
 
-				// If this is a new revision
-				if (lastKnownRevision && lastKnownRevision !== latestRevision.revisionId) {
-					console.log('[Altium365Trigger] NEW COMMIT DETECTED - firing event');
+				if (!isFirstRun && lastKnownRevision !== latestRevision.revisionId) {
+					console.log('[Altium365Trigger] CHANGE DETECTED - firing event');
 					const commitData: IDataObject = {
 						projectId: project.id,
 						projectName: project.name,
@@ -179,53 +178,46 @@ export class Altium365Trigger implements INodeType {
 						commitData.filesChanged = latestRevision.files;
 					}
 
-					returnData.push({
-						json: commitData,
-					});
+					returnData.push({ json: commitData });
 				}
 
-				// Update stored revision ID
 				staticData.lastRevisions[projectId] = latestRevision.revisionId;
 			}
 		} else {
-			// Monitor all projects in workspace
-			console.log(`[Altium365Trigger] Fetching all projects for workspace ${workspaceUrl}`);
-			const projectsResult = await sdk.GetProjects({
+			// Monitor all projects - single batched query instead of N+1
+			console.log(
+				`[Altium365Trigger] Fetching all projects with revisions for ${workspaceUrl}`,
+			);
+			const result = await sdk.GetProjectsWithRevisions({
 				workspaceUrl,
 				first: 100,
 			});
 
-			if (!projectsResult.desProjects?.nodes) {
-				console.log('[Altium365Trigger] No projects found in workspace');
+			if (!result.desProjects?.nodes) {
+				console.log('[Altium365Trigger] No projects found');
 				return null;
 			}
 
+			const projects = result.desProjects.nodes;
 			console.log(
-				`[Altium365Trigger] Found ${projectsResult.desProjects.nodes.length} projects`,
+				`[Altium365Trigger] Got ${projects.length} projects (total: ${result.desProjects.totalCount}) in single query`,
 			);
 
-			// Check each project for new commits
-			for (const project of projectsResult.desProjects.nodes) {
-				console.log(
-					`[Altium365Trigger] Checking project "${project.name}" (${project.id})`,
-				);
-				const projectResult = await sdk.GetLatestCommit({ projectId: project.id });
-
-				if (!projectResult.desProjectById?.latestRevision) {
-					console.log(`[Altium365Trigger] Project "${project.name}" has no revisions`);
+			for (const project of projects) {
+				const latestRevision = project.latestRevision;
+				if (!latestRevision) {
 					continue;
 				}
 
-				const latestRevision = projectResult.desProjectById.latestRevision;
 				const lastKnownRevision = staticData.lastRevisions[project.id];
-				console.log(
-					`[Altium365Trigger] Project "${project.name}": stored=${lastKnownRevision || '(none)'} current=${latestRevision.revisionId}`,
-				);
 
-				// If this is a new revision
-				if (lastKnownRevision && lastKnownRevision !== latestRevision.revisionId) {
+				if (
+					!isFirstRun &&
+					lastKnownRevision &&
+					lastKnownRevision !== latestRevision.revisionId
+				) {
 					console.log(
-						`[Altium365Trigger] NEW COMMIT in "${project.name}" - firing event`,
+						`[Altium365Trigger] CHANGE in "${project.name}": ${lastKnownRevision} -> ${latestRevision.revisionId}`,
 					);
 					const commitData: IDataObject = {
 						projectId: project.id,
@@ -240,18 +232,15 @@ export class Altium365Trigger implements INodeType {
 						commitData.filesChanged = latestRevision.files;
 					}
 
-					returnData.push({
-						json: commitData,
-					});
+					returnData.push({ json: commitData });
 				}
 
-				// Update stored revision ID
 				staticData.lastRevisions[project.id] = latestRevision.revisionId;
 			}
 		}
 
 		console.log(
-			`[Altium365Trigger] pollProjectCommitted complete: ${returnData.length} events found`,
+			`[Altium365Trigger] Poll complete: ${returnData.length} events, ${Object.keys(staticData.lastRevisions).length} projects tracked`,
 		);
 
 		if (returnData.length === 0) {
@@ -269,14 +258,15 @@ export class Altium365Trigger implements INodeType {
 	): Promise<INodeExecutionData[][] | null> {
 		const sdk = client.getSdk();
 
-		// Initialize storage for known project IDs
+		const isFirstRun = !staticData.lastProjectIds;
 		if (!staticData.lastProjectIds) {
 			staticData.lastProjectIds = [];
+			console.log('[Altium365Trigger] First run for newProject - establishing baseline');
 		}
 
 		const result = await sdk.GetProjects({
 			workspaceUrl,
-			first: 100, // TODO: handle pagination
+			first: 100,
 		});
 
 		if (!result.desProjects?.nodes) {
@@ -286,17 +276,20 @@ export class Altium365Trigger implements INodeType {
 		const returnData: INodeExecutionData[] = [];
 		const currentProjectIds = result.desProjects.nodes.map((p) => p.id);
 
-		// Find new projects
-		for (const project of result.desProjects.nodes) {
-			if (!staticData.lastProjectIds.includes(project.id)) {
-				returnData.push({
-					json: project,
-				});
+		if (!isFirstRun) {
+			for (const project of result.desProjects.nodes) {
+				if (!staticData.lastProjectIds.includes(project.id)) {
+					console.log(`[Altium365Trigger] New project detected: "${project.name}"`);
+					returnData.push({ json: project });
+				}
 			}
 		}
 
-		// Update stored project IDs
 		staticData.lastProjectIds = currentProjectIds;
+
+		console.log(
+			`[Altium365Trigger] newProject poll complete: ${returnData.length} new projects, ${currentProjectIds.length} tracked`,
+		);
 
 		if (returnData.length === 0) {
 			return null;
