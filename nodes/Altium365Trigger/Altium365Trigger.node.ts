@@ -122,10 +122,12 @@ export class Altium365Trigger implements INodeType {
 		const workflowStaticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
 
 		// Throttle: skip if not enough time has passed since last poll
+		// 5-second buffer accounts for n8n timer jitter
 		if (workflowStaticData.lastPollTime) {
-			const elapsed =
-				(Date.now() - new Date(workflowStaticData.lastPollTime).getTime()) / 60000;
-			if (elapsed < pollIntervalMinutes) {
+			const elapsedMs =
+				Date.now() - new Date(workflowStaticData.lastPollTime).getTime();
+			const thresholdMs = pollIntervalMinutes * 60000 - 5000;
+			if (elapsedMs < thresholdMs) {
 				return null;
 			}
 		}
