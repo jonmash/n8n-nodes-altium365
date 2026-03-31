@@ -8,6 +8,7 @@ import type {
 import { NodeOperationError } from 'n8n-workflow';
 
 import { NexarClient } from '../../shared/NexarClient';
+import { log } from '../../shared/log';
 
 interface WorkflowStaticData {
 	lastRevisions?: Record<string, string>; // projectId -> revisionId
@@ -129,7 +130,7 @@ export class Altium365Trigger implements INodeType {
 			}
 		}
 
-		console.log(`[Altium365Trigger] poll() running, event=${event}`);
+		log('Altium365Trigger', `poll() running, event=${event}`);
 
 		const credentials = await this.getCredentials('altium365NexarApi');
 		const workspaceUrl = credentials.workspaceUrl as string;
@@ -180,13 +181,13 @@ export class Altium365Trigger implements INodeType {
 		const isFirstRun = !staticData.lastRevisions;
 		if (!staticData.lastRevisions) {
 			staticData.lastRevisions = {};
-			console.log('[Altium365Trigger] First run - establishing baseline');
+			log('Altium365Trigger', 'First run - establishing baseline');
 		}
 
 		const returnData: INodeExecutionData[] = [];
 
 		if (projectId) {
-			console.log(`[Altium365Trigger] Fetching single project: ${projectId}`);
+			log('Altium365Trigger', `Fetching single project: ${projectId}`);
 			const result = await sdk.GetLatestCommit({ projectId });
 
 			if (!result.desProjectById) {
@@ -201,12 +202,10 @@ export class Altium365Trigger implements INodeType {
 
 			if (latestRevision) {
 				const lastKnownRevision = staticData.lastRevisions[projectId];
-				console.log(
-					`[Altium365Trigger] "${project.name}": stored=${lastKnownRevision || '(none)'} current=${latestRevision.revisionId}`,
-				);
+				log('Altium365Trigger', `"${project.name}": stored=${lastKnownRevision || '(none)'} current=${latestRevision.revisionId}`);
 
 				if (!isFirstRun && lastKnownRevision !== latestRevision.revisionId) {
-					console.log('[Altium365Trigger] CHANGE DETECTED - firing event');
+					log('Altium365Trigger', 'CHANGE DETECTED - firing event');
 					const commitData: IDataObject = {
 						projectId: project.id,
 						projectName: project.name,
@@ -235,13 +234,9 @@ export class Altium365Trigger implements INodeType {
 					: undefined;
 
 			if (where) {
-				console.log(
-					`[Altium365Trigger] Incremental poll: fetching projects updated since ${lastPollTime}`,
-				);
+				log('Altium365Trigger', `Incremental poll: fetching projects updated since ${lastPollTime}`);
 			} else {
-				console.log(
-					`[Altium365Trigger] Full poll: fetching all projects for ${workspaceUrl}`,
-				);
+				log('Altium365Trigger', `Full poll: fetching all projects for ${workspaceUrl}`);
 			}
 
 			const allProjects: Array<{
@@ -274,8 +269,8 @@ export class Altium365Trigger implements INodeType {
 				}
 
 				allProjects.push(...result.desProjects.nodes);
-				console.log(
-					`[Altium365Trigger] Page ${pageNum}: got ${result.desProjects.nodes.length} projects (${allProjects.length}/${result.desProjects.totalCount} total)`,
+				log('Altium365Trigger', 
+					`Page ${pageNum}: got ${result.desProjects.nodes.length} projects (${allProjects.length}/${result.desProjects.totalCount} total)`,
 				);
 
 				if (result.desProjects.pageInfo.hasNextPage) {
@@ -286,7 +281,7 @@ export class Altium365Trigger implements INodeType {
 			} while (after);
 
 			if (isFirstRun && allProjects.length === 0) {
-				console.log('[Altium365Trigger] No projects found in workspace');
+				log('Altium365Trigger', 'No projects found in workspace');
 				staticData.lastPollTime = pollStartTime;
 				return null;
 			}
@@ -304,8 +299,8 @@ export class Altium365Trigger implements INodeType {
 				const isNewCommit =
 					latestRevision && lastKnownRevision !== latestRevision.revisionId;
 
-				console.log(
-					`[Altium365Trigger] CHANGE in "${project.name}": type=${isNewCommit ? 'commit' : 'metadata'} rev=${lastKnownRevision || '(new)'} -> ${latestRevision?.revisionId || '(none)'}`,
+				log('Altium365Trigger', 
+					`CHANGE in "${project.name}": type=${isNewCommit ? 'commit' : 'metadata'} rev=${lastKnownRevision || '(new)'} -> ${latestRevision?.revisionId || '(none)'}`,
 				);
 
 				const eventData: IDataObject = {
@@ -334,8 +329,8 @@ export class Altium365Trigger implements INodeType {
 			staticData.lastPollTime = pollStartTime;
 		}
 
-		console.log(
-			`[Altium365Trigger] Poll complete: ${returnData.length} events, ${Object.keys(staticData.lastRevisions).length} projects tracked`,
+		log('Altium365Trigger', 
+			`Poll complete: ${returnData.length} events, ${Object.keys(staticData.lastRevisions).length} projects tracked`,
 		);
 
 		if (returnData.length === 0) {
@@ -356,7 +351,7 @@ export class Altium365Trigger implements INodeType {
 		const isFirstRun = !staticData.lastProjectIds;
 		if (!staticData.lastProjectIds) {
 			staticData.lastProjectIds = [];
-			console.log('[Altium365Trigger] First run for newProject - establishing baseline');
+			log('Altium365Trigger', 'First run for newProject - establishing baseline');
 		}
 
 		const lastPollTime = staticData.lastPollTime;
@@ -380,7 +375,7 @@ export class Altium365Trigger implements INodeType {
 		if (!isFirstRun) {
 			for (const project of result.desProjects.nodes) {
 				if (!staticData.lastProjectIds.includes(project.id)) {
-					console.log(`[Altium365Trigger] New project detected: "${project.name}"`);
+					log('Altium365Trigger', `New project detected: "${project.name}"`);
 					returnData.push({ json: project });
 				}
 			}
@@ -394,8 +389,8 @@ export class Altium365Trigger implements INodeType {
 
 		staticData.lastPollTime = pollStartTime;
 
-		console.log(
-			`[Altium365Trigger] newProject poll complete: ${returnData.length} new projects, ${staticData.lastProjectIds.length} tracked`,
+		log('Altium365Trigger', 
+			`newProject poll complete: ${returnData.length} new projects, ${staticData.lastProjectIds.length} tracked`,
 		);
 
 		if (returnData.length === 0) {
@@ -416,7 +411,7 @@ export class Altium365Trigger implements INodeType {
 		const isFirstRun = !staticData.lastComponentState;
 		if (!staticData.lastComponentState) {
 			staticData.lastComponentState = {};
-			console.log('[Altium365Trigger] First run for components - establishing baseline');
+			log('Altium365Trigger', 'First run for components - establishing baseline');
 		}
 
 		const pollStartTime = new Date().toISOString();
@@ -452,8 +447,8 @@ export class Altium365Trigger implements INodeType {
 			}
 
 			allComponents.push(...components.nodes);
-			console.log(
-				`[Altium365Trigger] Components page ${pageNum}: got ${components.nodes.length} (${allComponents.length}/${components.totalCount} total)`,
+			log('Altium365Trigger', 
+				`Components page ${pageNum}: got ${components.nodes.length} (${allComponents.length}/${components.totalCount} total)`,
 			);
 
 			if (components.pageInfo.hasNextPage) {
@@ -463,8 +458,8 @@ export class Altium365Trigger implements INodeType {
 			}
 		} while (after);
 
-		console.log(
-			`[Altium365Trigger] Fetched ${allComponents.length} components total`,
+		log('Altium365Trigger', 
+			`Fetched ${allComponents.length} components total`,
 		);
 
 		const returnData: INodeExecutionData[] = [];
@@ -476,8 +471,8 @@ export class Altium365Trigger implements INodeType {
 
 			if (!isFirstRun && lastState !== currentState) {
 				const isNew = !lastState;
-				console.log(
-					`[Altium365Trigger] Component ${isNew ? 'CREATED' : 'UPDATED'}: "${component.name}" (${component.id.substring(0, 40)}...)`,
+				log('Altium365Trigger', 
+					`Component ${isNew ? 'CREATED' : 'UPDATED'}: "${component.name}" (${component.id.substring(0, 40)}...)`,
 				);
 
 				returnData.push({
@@ -502,8 +497,8 @@ export class Altium365Trigger implements INodeType {
 
 		staticData.lastPollTime = pollStartTime;
 
-		console.log(
-			`[Altium365Trigger] Component poll complete: ${returnData.length} events, ${Object.keys(staticData.lastComponentState).length} components tracked`,
+		log('Altium365Trigger', 
+			`Component poll complete: ${returnData.length} events, ${Object.keys(staticData.lastComponentState).length} components tracked`,
 		);
 
 		if (returnData.length === 0) {

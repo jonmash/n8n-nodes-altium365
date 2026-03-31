@@ -36,7 +36,7 @@ LINES=${1:-100}
 if [ "$2" == "altium" ] || [ "$2" == "plugin" ]; then
     echo -e "${YELLOW}📋 Filtering for [Altium365] logs (last $LINES lines):${NC}"
     echo "────────────────────────────────────────────────────────────────"
-    docker logs --tail "$LINES" "$CONTAINER_ID" 2>&1 | grep -i "\[Altium365\]" || echo "No [Altium365] logs found in last $LINES lines"
+    docker logs --tail "$LINES" --timestamps "$CONTAINER_ID" 2>&1 | grep -iE "\[Altium365\]|\[Altium365Trigger\]" || echo "No Altium logs found in last $LINES lines"
 else
     echo -e "${YELLOW}📋 Showing last $LINES lines of n8n logs:${NC}"
     echo "────────────────────────────────────────────────────────────────"

@@ -1,6 +1,7 @@
 import type { IExecuteFunctions, IPollFunctions, IHttpRequestOptions } from 'n8n-workflow';
 import { GraphQLClient } from 'graphql-request';
 import { getSdk } from './generated/graphql';
+import { log, warn, error as logError } from './log';
 
 type ExecutionContext = IExecuteFunctions | IPollFunctions;
 
@@ -34,7 +35,7 @@ export class NexarClient {
 				const bodyPreview = options?.body
 					? String(options.body).substring(0, 200)
 					: '(no body)';
-				console.log(`[Altium365] REQUEST ${urlString} body=${bodyPreview}`);
+				log('Altium365', `REQUEST ${urlString} body=${bodyPreview}`);
 
 				const requestOptions: IHttpRequestOptions = {
 					method: 'POST',
@@ -70,17 +71,13 @@ export class NexarClient {
 
 					if (parsed?.errors && parsed?.data) {
 						for (const err of parsed.errors) {
-							console.warn(
-								`[Altium365] Partial GraphQL error (non-fatal): ${err.message?.substring(0, 200)}`,
-							);
+							warn('Altium365', `Partial GraphQL error (non-fatal): ${err.message?.substring(0, 200)}`);
 						}
 						parsed = { data: parsed.data, extensions: parsed.extensions };
 					}
 
 					const bodyStr = JSON.stringify(parsed);
-					console.log(
-						`[Altium365] RESPONSE (${elapsed}ms) preview=${bodyStr.substring(0, 300)}`,
-					);
+					log('Altium365', `RESPONSE (${elapsed}ms) preview=${bodyStr.substring(0, 300)}`);
 
 					return {
 						ok: true,
@@ -93,9 +90,7 @@ export class NexarClient {
 				} catch (error) {
 					const elapsed = Date.now() - startTime;
 					const errorMessage = error instanceof Error ? error.message : String(error);
-					console.error(
-						`[Altium365] REQUEST FAILED (${elapsed}ms): ${errorMessage}`,
-					);
+					logError('Altium365', `REQUEST FAILED (${elapsed}ms): ${errorMessage}`);
 					throw error;
 				}
 			},
