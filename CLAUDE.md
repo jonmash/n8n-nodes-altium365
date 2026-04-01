@@ -317,13 +317,15 @@ Since the package is already published (v0.1.0), you can now configure trusted p
 
 ### Release Process
 
+**CRITICAL:** npm publish is triggered by pushing a git tag. Merging to master alone does NOT publish. Always tag after merging or the version will sit unpublished.
+
 1. Update version in package.json (e.g., `0.1.0` → `0.2.0`)
 2. Update CHANGELOG.md with new version and changes
-3. Commit changes: `git add . && git commit -m "Version bumped to 0.2.0"`
-4. Create and push tag:
+3. Commit and merge to master
+4. Create and push tag immediately after merge:
    ```bash
-   git tag -a v0.2.0 -m "Release v0.2.0"
-   git push && git push --tags
+   git tag -a v0.2.0 -m "v0.2.0"
+   git push --tags
    ```
 5. GitHub Actions automatically builds, tests, and publishes to npm with provenance
 
