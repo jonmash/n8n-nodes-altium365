@@ -1,9 +1,9 @@
 import type {
 	IDataObject,
 	ILoadOptionsFunctions,
+	INodeListSearchResult,
 	IPollFunctions,
 	INodeExecutionData,
-	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
@@ -70,20 +70,34 @@ export class Altium365Trigger implements INodeType {
 
 			// Project ID filter for projectCommitted event
 			{
-				displayName: 'Project Name or ID',
+				displayName: 'Project',
 				name: 'projectId',
-				type: 'options',
-				typeOptions: {
-					loadOptionsMethod: 'getProjects',
-				},
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
 				displayOptions: {
 					show: {
 						event: ['projectCommitted'],
 					},
 				},
-				default: '',
-				description:
-					'Select a specific project to monitor, or leave empty to monitor all. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description: 'Select a specific project to monitor, or leave empty to monitor all.',
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						placeholder: 'Select a project...',
+						typeOptions: {
+							searchListMethod: 'searchProjects',
+							searchable: true,
+						},
+					},
+					{
+						displayName: 'By ID',
+						name: 'id',
+						type: 'string',
+						placeholder: 'grid:workspace:...:design:project/...',
+					},
+				],
 			},
 
 			// Include file changes option
@@ -121,29 +135,46 @@ export class Altium365Trigger implements INodeType {
 	};
 
 	methods = {
-		loadOptions: {
-			async getProjects(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+		listSearch: {
+			async searchProjects(
+				this: ILoadOptionsFunctions,
+				filter?: string,
+				paginationToken?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('altium365NexarApi');
 				const apiUrl = credentials.apiEndpointUrl as string;
 				const workspaceUrl = credentials.workspaceUrl as string;
 				const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 				const sdk = client.getSdk();
-				const options: INodePropertyOptions[] = [];
-				let after: string | undefined;
-				do {
-					const result = await sdk.GetProjects({ workspaceUrl, first: 100, after });
-					if (!result.desProjects?.nodes) break;
-					for (const project of result.desProjects.nodes) {
-						options.push({ name: project.name || project.id, value: project.id });
-					}
-					if (result.desProjects.pageInfo.hasNextPage) {
-						after = result.desProjects.pageInfo.endCursor ?? undefined;
-					} else {
-						break;
-					}
-				} while (after);
-				options.sort((a, b) => a.name.localeCompare(b.name));
-				return options;
+
+				const result = await sdk.GetProjects({
+					workspaceUrl,
+					first: 50,
+					after: paginationToken as string | undefined,
+				});
+
+				let items = (result.desProjects?.nodes ?? []).map((p) => ({
+					name: p.name || p.id,
+					value: p.id,
+				}));
+
+				if (filter) {
+					const f = filter.toLowerCase();
+					items = items.filter((i) => i.name.toLowerCase().includes(f));
+				}
+
+				// Prepend the "all projects" option on the first unfiltered page
+				if (!filter && !paginationToken) {
+					items.unshift({ name: '(All Projects)', value: '' });
+				}
+
+				return {
+					results: items,
+					paginationToken:
+						result.desProjects?.pageInfo.hasNextPage
+							? (result.desProjects.pageInfo.endCursor ?? undefined)
+							: undefined,
+				};
 			},
 		},
 	};
@@ -209,7 +240,7 @@ export class Altium365Trigger implements INodeType {
 		workspaceUrl: string,
 		staticData: WorkflowStaticData,
 	): Promise<INodeExecutionData[][] | null> {
-		const projectId = this.getNodeParameter('projectId', '') as string;
+		const projectId = this.getNodeParameter('projectId', '', { extractValue: true }) as string;
 		const includeFileChanges = this.getNodeParameter('includeFileChanges', true) as boolean;
 		const sdk = client.getSdk();
 

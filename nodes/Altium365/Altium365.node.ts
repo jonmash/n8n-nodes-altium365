@@ -2,6 +2,7 @@ import type {
 	IExecuteFunctions,
 	ILoadOptionsFunctions,
 	INodeExecutionData,
+	INodeListSearchResult,
 	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
@@ -179,12 +180,10 @@ export class Altium365 implements INodeType {
 
 			// Project ID (used by project + export operations)
 			{
-				displayName: 'Project Name or ID',
+				displayName: 'Project',
 				name: 'projectId',
-				type: 'options',
-				typeOptions: {
-					loadOptionsMethod: 'getProjects',
-				},
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
 				required: true,
 				displayOptions: {
 					show: {
@@ -199,9 +198,25 @@ export class Altium365 implements INodeType {
 						],
 					},
 				},
-				default: '',
-				description:
-					'Select a project or enter the full grid ID. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+				description: 'Select a project from the list or enter its grid ID.',
+				modes: [
+					{
+						displayName: 'From List',
+						name: 'list',
+						type: 'list',
+						placeholder: 'Select a project...',
+						typeOptions: {
+							searchListMethod: 'searchProjects',
+							searchable: true,
+						},
+					},
+					{
+						displayName: 'By ID',
+						name: 'id',
+						type: 'string',
+						placeholder: 'grid:workspace:...:design:project/...',
+					},
+				],
 			},
 
 			// Limit field
@@ -450,52 +465,51 @@ export class Altium365 implements INodeType {
 	};
 
 	methods = {
-		loadOptions: {
-			async getProjects(
+		listSearch: {
+			async searchProjects(
 				this: ILoadOptionsFunctions,
-			): Promise<INodePropertyOptions[]> {
+				filter?: string,
+				paginationToken?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('altium365NexarApi');
 				const apiUrl = credentials.apiEndpointUrl as string;
 				const workspaceUrl = credentials.workspaceUrl as string;
 				const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 				const sdk = client.getSdk();
 
-				const options: INodePropertyOptions[] = [];
-				let after: string | undefined;
+				const result = await sdk.GetProjects({
+					workspaceUrl,
+					first: 50,
+					after: paginationToken as string | undefined,
+				});
 
-				do {
-					const result = await sdk.GetProjects({
-						workspaceUrl,
-						first: 100,
-						after,
-					});
+				let items = (result.desProjects?.nodes ?? []).map((p) => ({
+					name: p.name || p.id,
+					value: p.id,
+				}));
 
-					if (!result.desProjects?.nodes) break;
+				if (filter) {
+					const f = filter.toLowerCase();
+					items = items.filter((i) => i.name.toLowerCase().includes(f));
+				}
 
-					for (const project of result.desProjects.nodes) {
-						options.push({
-							name: project.name || project.id,
-							value: project.id,
-						});
-					}
-
-					if (result.desProjects.pageInfo.hasNextPage) {
-						after = result.desProjects.pageInfo.endCursor ?? undefined;
-					} else {
-						break;
-					}
-				} while (after);
-
-				options.sort((a, b) => a.name.localeCompare(b.name));
-				return options;
+				return {
+					results: items,
+					paginationToken:
+						result.desProjects?.pageInfo.hasNextPage
+							? (result.desProjects.pageInfo.endCursor ?? undefined)
+							: undefined,
+				};
 			},
+		},
 
+		loadOptions: {
 			async getReleases(
 				this: ILoadOptionsFunctions,
 			): Promise<INodePropertyOptions[]> {
 				const credentials = await this.getCredentials('altium365NexarApi');
 				const apiUrl = credentials.apiEndpointUrl as string;
-				const projectId = this.getCurrentNodeParameter('projectId') as string;
+				const projectId = this.getCurrentNodeParameter('projectId', { extractValue: true }) as string;
 
 				if (!projectId) return [];
 
@@ -515,16 +529,19 @@ export class Altium365 implements INodeType {
 			): Promise<INodePropertyOptions[]> {
 				const credentials = await this.getCredentials('altium365NexarApi');
 				const apiUrl = credentials.apiEndpointUrl as string;
-				const projectId = this.getCurrentNodeParameter('projectId') as string;
+				const projectId = this.getCurrentNodeParameter('projectId', { extractValue: true }) as string;
 
-				if (!projectId) return [];
+				if (!projectId) return [{ name: '(Default Variant)', value: '' }];
 
 				const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 				const sdk = client.getSdk();
 				const result = await sdk.GetProjectVariants({ projectId });
 
 				const variants = result.desProjectById?.design?.variants ?? [];
-				return variants.map((v) => ({ name: v.name, value: v.name }));
+				return [
+					{ name: '(Default Variant)', value: '' },
+					...variants.map((v) => ({ name: v.name, value: v.name })),
+				];
 			},
 
 			async getRevisions(
@@ -532,24 +549,27 @@ export class Altium365 implements INodeType {
 			): Promise<INodePropertyOptions[]> {
 				const credentials = await this.getCredentials('altium365NexarApi');
 				const apiUrl = credentials.apiEndpointUrl as string;
-				const projectId = this.getCurrentNodeParameter('projectId') as string;
+				const projectId = this.getCurrentNodeParameter('projectId', { extractValue: true }) as string;
 
-				if (!projectId) return [];
+				if (!projectId) return [{ name: '(Latest Version)', value: '' }];
 
 				const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
 				const sdk = client.getSdk();
 				const result = await sdk.GetCommitHistory({ projectId, first: 50 });
 
 				const commits = result.desProjectById?.revisions?.nodes ?? [];
-				return commits.map((c) => {
-					const shortHash = c.revisionId.substring(0, 7);
-					const date = new Date(c.createdAt).toLocaleDateString();
-					const msg = c.message.length > 60 ? c.message.substring(0, 57) + '...' : c.message;
-					return {
-						name: `${shortHash} - ${msg} (${date})`,
-						value: c.revisionId,
-					};
-				});
+				return [
+					{ name: '(Latest Version)', value: '' },
+					...commits.map((c) => {
+						const shortHash = c.revisionId.substring(0, 7);
+						const date = new Date(c.createdAt).toLocaleDateString();
+						const msg = c.message.length > 60 ? c.message.substring(0, 57) + '...' : c.message;
+						return {
+							name: `${shortHash} - ${msg} (${date})`,
+							value: c.revisionId,
+						};
+					}),
+				];
 			},
 		},
 	};
@@ -588,7 +608,7 @@ export class Altium365 implements INodeType {
 
 				if (resource === 'project') {
 					if (operation === 'get') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
+						const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
 						const result = await sdk.GetProjectById({ id: projectId });
 
 						if (!result.desProjectById) {
@@ -627,7 +647,7 @@ export class Altium365 implements INodeType {
 					}
 
 					if (operation === 'getLatestCommit') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
+						const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
 						const result = await sdk.GetLatestCommit({ projectId });
 
 						if (!result.desProjectById?.latestRevision) {
@@ -648,7 +668,7 @@ export class Altium365 implements INodeType {
 					}
 
 					if (operation === 'getCommitHistory') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
+						const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
 						const returnAll = this.getNodeParameter('returnAll', i) as boolean;
 						const limit = this.getNodeParameter('limit', i, 50) as number;
 
@@ -710,7 +730,7 @@ export class Altium365 implements INodeType {
 					}
 
 					if (operation === 'exportProjectFiles') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
+						const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
 						const exportType = this.getNodeParameter('exportType', i) as string;
 						const variantName = this.getNodeParameter('variantName', i, '') as string;
 						const revisionId = this.getNodeParameter('revisionId', i, '') as string;
@@ -809,7 +829,7 @@ export class Altium365 implements INodeType {
 					}
 
 					if (operation === 'createManufacturePackage') {
-						const projectId = this.getNodeParameter('projectId', i) as string;
+						const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
 						const packageName = this.getNodeParameter('packageName', i) as string;
 						const shareWithRaw = this.getNodeParameter(
 							'shareWithEmails',
