@@ -4,7 +4,7 @@
 
 This is an n8n community node package that integrates Altium 365 with n8n workflows via the Nexar GraphQL API. The package provides both action nodes and trigger nodes for comprehensive workflow automation with Altium 365.
 
-**Current Version:** 0.1.0 (tagged in git as v0.1.0)
+**Current Version:** 0.12.0 (tagged in git as v0.12.0)
 
 **Package Name:** @jonmash/n8n-nodes-altium365
 
@@ -12,400 +12,261 @@ This is an n8n community node package that integrates Altium 365 with n8n workfl
 
 ## Current Status
 
-### ✅ Completed (v0.1.0)
+### ✅ Implemented
 
 **Core Infrastructure:**
-- OAuth2 client credentials flow with automatic token caching
-- Token refresh logic (24-hour tokens, refreshes 5 minutes before expiry)
+- OAuth2 PKCE credential flow via n8n's `httpRequestWithAuthentication` (handles token injection and refresh automatically)
 - GraphQL Code Generator integration for full type safety from Nexar schema
-- NexarClient class handles all API communication
-- TypeScript build pipeline with ESLint and Prettier
-- Clean git history with professional commit messages
+- `NexarClient` class routes all API calls through n8n's auth helper
+- Partial GraphQL error handling: when Nexar returns both `data` and `errors`, errors are logged as warnings and execution continues
+- TypeScript build pipeline with ESLint, Prettier, Husky, lint-staged
+- Docker DNS fix: set `dns: [1.1.1.1, 1.0.0.1]` in docker-compose to avoid 4s resolution latency
 
-**Implemented Nodes:**
+**Altium365 (Action Node):**
+- **Project resource:**
+  - Get (by ID)
+  - Get Many (paginated, with return-all option)
+  - Get Latest Commit
+  - Get Commit History (paginated)
+  - Update Parameters (fixedCollection UI, replaceExisting flag)
+- **Workspace resource:**
+  - Get All
+- **Export resource:**
+  - Download Release Package (returns variant download URLs)
+  - Export Project Files (Gerber, GerberX2, IDF, NCDrill, CustomOutJob — async poll loop)
+  - Create Manufacture Package (async poll loop, supports webhook callback URL for async mode)
 
-1. **Altium365 (Action Node)**
-   - Projects resource:
-     - Get (by ID)
-     - Get Many (paginated)
-     - Get Latest Commit
-     - Get Commit History
-     - Update Parameters (stub - not yet implemented)
-   - Workspaces resource:
-     - Get All
+**Altium365Trigger (Trigger Node):**
+- **Project Committed:** Monitors Git commits across all or a single project. Incremental polling with `updatedAt >= lastPollTime` filter. Detects both new commits and metadata changes. Outputs commit details and file changes.
+- **New Project:** Detects new projects created in workspace since last poll.
+- **Component Updated:** Detects created/modified library components. Full fetch required (no server-side date filter available on library). Tracks state as `modifiedAt|revisionId`.
+- Poll throttle: configurable minimum interval (1/5/10/15/30/60 min) with 5-second jitter buffer to prevent skipped polls.
 
-2. **Altium365Trigger (Trigger Node)**
-   - Project Committed: Monitors for Git commits, outputs commit details and file changes
-   - New Project: Monitors for new projects created in workspace
+**UX / Dropdowns:**
+- `projectId` in both nodes uses `resourceLocator` type with server-side paginated search (50 per page) and a "By ID" manual entry mode.
+- `releaseId` uses `loadOptions` cascading off `projectId`.
+- `variantName` uses `loadOptions` (from `DesProject.design.variants`) with a `(Default Variant)` blank entry.
+- `revisionId` uses `loadOptions` (last 50 commits) with a `(Latest Version)` blank entry, displaying `shortHash - message (date)`.
+- Trigger `projectId` list includes `(All Projects)` as first entry (value `''` = monitor all).
 
-**Documentation:**
-- Comprehensive README with setup instructions
-- CHANGELOG.md
-- MIT License
-- Usage examples
+---
 
 ## Architecture
 
-### GraphQL Code Generation Pattern
+### GraphQL Code Generation
 
-The project uses `@graphql-codegen/cli` to generate fully typed TypeScript SDK from the Nexar GraphQL schema:
+Queries live in `shared/queries/**/*.graphql`. The codegen reads `nexar.sdl` (the full Nexar schema SDL, checked into the repo) and generates `shared/generated/graphql.ts`.
 
-1. Write GraphQL queries in `shared/queries/**/*.graphql`
-2. Run `npm run codegen` to:
-   - Introspect the Nexar schema (https://api.nexar.com/graphql)
-   - Validate queries against schema
-   - Generate TypeScript types and SDK functions in `shared/generated/graphql.ts`
-3. Import and use the typed SDK via `NexarClient.getSdk()`
+**Important:** `shared/generated/graphql.ts` is NOT committed (in `.gitignore`). Run `npm run codegen` after a fresh clone. The codegen reads from `nexar.sdl` locally — no network call required.
 
-**Important:** Generated files in `shared/generated/` are NOT committed to git (in .gitignore) and must be regenerated after fresh clone.
+```bash
+npm run codegen   # regenerate types from nexar.sdl
+npm run build     # codegen + tsc + gulp (copy icons)
+```
 
 ### NexarClient Pattern
 
-All API communication goes through `shared/NexarClient.ts`:
+All API calls go through `shared/NexarClient.ts`. It wraps `graphql-request` and delegates HTTP to n8n's `httpRequestWithAuthentication`, which injects the Bearer token and handles refresh on 401.
 
 ```typescript
-const client = new NexarClient(clientId, clientSecret);
-const sdk = await client.getSdk();
+const client = new NexarClient(this, 'altium365NexarApi', apiUrl);
+const sdk = client.getSdk();
 const result = await sdk.GetProjectById({ id: projectId });
 ```
 
-The client automatically:
-- Fetches OAuth tokens
-- Caches tokens until 5 minutes before expiry
-- Refreshes tokens when needed
-- Sets proper User-Agent header
-- Handles GraphQL errors
+The `ExecutionContext` union type covers `IExecuteFunctions | IPollFunctions | ILoadOptionsFunctions` — the same client works in action nodes, trigger polls, and dropdown loaders.
+
+### Dynamic Dropdowns
+
+Two patterns are used:
+
+**`resourceLocator` (for projectId)** — supports server-side search with pagination:
+```typescript
+methods = {
+  listSearch: {
+    async searchProjects(this: ILoadOptionsFunctions, filter?, paginationToken?): Promise<INodeListSearchResult>
+  }
+}
+```
+Read the value with `{ extractValue: true }`:
+```typescript
+// In IExecuteFunctions:
+const projectId = this.getNodeParameter('projectId', i, '', { extractValue: true }) as string;
+// In IPollFunctions or loadOptions:
+const projectId = this.getNodeParameter('projectId', '', { extractValue: true }) as string;
+// In getCurrentNodeParameter (loadOptions cascade):
+const projectId = this.getCurrentNodeParameter('projectId', { extractValue: true }) as string;
+```
+
+**`loadOptions` (for release/variant/revision)** — loads full list, client-side only:
+```typescript
+methods = {
+  loadOptions: {
+    async getReleases(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]>
+  }
+}
+```
+Use `loadOptionsDependsOn: ['projectId']` to cascade off the project selector.
 
 ### Trigger Node Pattern
 
-Trigger nodes use the `poll()` method with n8n's polling mechanism. Helper methods require special TypeScript handling:
+Helper methods require explicit prototype binding to preserve TypeScript context typing:
 
 ```typescript
-// In poll() method
-if (event === 'projectCommitted') {
-    return await Altium365Trigger.prototype.pollProjectCommitted.call(
-        this,
-        client,
-        workspaceUrl,
-        workflowStaticData,
-    );
-}
+// In poll():
+return await Altium365Trigger.prototype.pollProjectCommitted.call(this, client, workspaceUrl, staticData);
 
-// Helper method signature
+// Helper signature:
 private async pollProjectCommitted(
     this: IPollFunctions,
     client: NexarClient,
     workspaceUrl: string,
     staticData: WorkflowStaticData,
-): Promise<INodeExecutionData[][] | null> {
-    // Implementation
-}
+): Promise<INodeExecutionData[][] | null>
 ```
-
-**Key points:**
-- Must use `.prototype.method.call(this, ...)` to call helper methods
-- First parameter of helper must be `this: IPollFunctions`
-- This allows TypeScript to properly type-check the context
 
 ### State Storage in Triggers
 
-Triggers store state in `workflowStaticData`:
-
 ```typescript
 interface WorkflowStaticData {
-    lastRevisions?: Record<string, string>; // projectId -> revisionId
+    lastRevisions?: Record<string, string>;   // projectId -> revisionId
+    lastPollTime?: string;                    // ISO timestamp
     lastProjectIds?: string[];
+    lastComponentState?: Record<string, string>; // componentId -> "modifiedAt|revisionId"
 }
-
 const staticData = this.getWorkflowStaticData('node') as WorkflowStaticData;
 ```
 
-On first run, initialize storage. On subsequent runs, compare current state to detect changes.
+First run establishes baseline (no events fired). Subsequent runs compare against stored state.
+
+**Note:** "Listen for test event" in n8n does NOT persist static data. Only activated (running) workflows persist state correctly.
+
+### Async Export Jobs
+
+Export operations use a poll loop:
+```typescript
+await pollJob(
+    () => sdk.GetProjectExportJob({ projectExportJobId: jobId }),
+    (r) => r.desProjectExportJob?.status === 'DONE',
+    (r) => r.desProjectExportJob?.status === 'ERROR',
+    (r) => `Export job failed: ${r.desProjectExportJob?.reason}`,
+    pollIntervalMs,
+    timeoutMs,
+);
+```
+
+The `CreateManufacturePackage` operation also accepts an optional `callbackUrl`. When set, the node skips the poll loop and returns `{jobId, status: 'PENDING'}` immediately. Nexar POSTs to the callback URL when the package is ready and shared. Use an n8n Webhook Trigger node URL here.
+
+---
 
 ## Important Files
 
 ```
 ├── credentials/
-│   └── Altium365NexarApi.credentials.ts  # OAuth2 credentials definition
+│   └── Altium365NexarApi.credentials.ts     # OAuth2 PKCE credential
 ├── nodes/
 │   ├── Altium365/
-│   │   ├── Altium365.node.ts             # Main action node
-│   │   ├── Altium365.node.json           # Codex metadata
-│   │   └── altiumn8n.svg                 # Node icon (project logo)
+│   │   ├── Altium365.node.ts                # Action node
+│   │   ├── Altium365.node.json              # Codex metadata
+│   │   └── altium365.svg                    # Node icon
 │   └── Altium365Trigger/
-│       ├── Altium365Trigger.node.ts      # Polling trigger node
-│       ├── Altium365Trigger.node.json    # Codex metadata
-│       └── altium365trigger.svg          # Trigger icon
+│       ├── Altium365Trigger.node.ts         # Polling trigger node
+│       ├── Altium365Trigger.node.json       # Codex metadata
+│       └── altium365trigger.svg             # Trigger icon
 ├── shared/
-│   ├── NexarClient.ts                    # GraphQL client with OAuth
+│   ├── NexarClient.ts                       # GraphQL client with n8n auth
+│   ├── log.ts                               # Timestamped logging helpers
 │   ├── queries/
-│   │   ├── workspace.graphql             # Workspace queries
-│   │   └── projects.graphql              # Project & commit queries
+│   │   ├── workspace.graphql
+│   │   ├── projects.graphql                 # Projects, commits, variants, components
+│   │   └── exports.graphql                  # Releases, export jobs, manufacture packages
 │   └── generated/
-│       └── graphql.ts                    # Auto-generated (443KB)
-├── assets/
-│   ├── artwork.svg                       # Logo source artwork
-│   └── altiumn8n.svg                     # Project logo
+│       └── graphql.ts                       # Auto-generated — do not edit
+├── nexar.sdl                                # Full Nexar GraphQL schema SDL
+├── codegen.yml                              # Codegen config (reads nexar.sdl)
 ├── package.json
 ├── tsconfig.json
-├── codegen.yml                           # GraphQL code generator config
 ├── eslint.config.mjs
-├── gulpfile.js                           # Icon copy task
-├── README.md
-├── CHANGELOG.md
-└── LICENSE.md
-```
-
-## Development Commands
-
-```bash
-# Install dependencies
-npm install
-
-# Generate GraphQL types from Nexar schema
-npm run codegen
-
-# Build the project (runs codegen + tsc + gulp)
-npm run build
-
-# Watch mode (TypeScript only)
-npm run dev
-
-# Lint code
-npm run lint
-
-# Fix linting issues
-npm run lintfix
-
-# Format code
-npm run format
-```
-
-## Key Implementation Details
-
-### Token Caching Logic
-
-Located in `shared/NexarClient.ts`:
-
-```typescript
-// Token expires_in is in seconds (typically 86400 = 24 hours)
-// We refresh 5 minutes before expiry to prevent race conditions
-const expiresAt = now + tokenData.expires_in * 1000 - TOKEN_REFRESH_BUFFER_MS;
-```
-
-The 5-minute buffer ensures we never use an expired token.
-
-### Commit Detection
-
-The "Project Committed" trigger works by:
-1. Polling `desProjectById(id).latestRevision.revisionId` for each project
-2. Comparing to last known revision ID stored in workflow static data
-3. When different, fetching full commit details and outputting event
-4. Storing new revision ID for next poll
-
-**Important:** `latestRevision` can be `null` if project uses Simple Sync or external VCS.
-
-### Error Handling
-
-All operations wrap errors and convert to n8n's `NodeOperationError`:
-
-```typescript
-try {
-    // Operation
-} catch (error) {
-    if (this.continueOnFail()) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        returnData.push({ json: { error: errorMessage }, pairedItem: { item: i } });
-        continue;
-    }
-    throw error;
-}
-```
-
-## Known Limitations / TODOs
-
-### Not Yet Implemented
-
-1. **BOM Operations** - Get WIP BOM, Get Release BOM
-2. **Releases** - Get all releases, Get release by ID
-3. **Library** - Component operations
-4. **Comments** - Create, update, delete (queries exist but mutations not exposed)
-5. **Tasks** - Full CRUD operations
-6. **Exports** - Async export job pattern with polling
-7. **Update Project Parameters** - Placeholder exists but needs implementation
-8. **Pagination Handling** - Currently limits to first 100 items for workspace-wide triggers
-
-### Future Enhancements
-
-1. Add more trigger events:
-   - New Release
-   - New Comment
-   - New Task
-2. Implement GraphQL subscription for real-time comment notifications
-3. Add file download operations (design files, exports)
-4. Add collaboration revision tracking
-5. Implement async export job polling pattern
-6. Set up pre-commit hook to run linting automatically (husky + lint-staged)
-
-### ESLint Note
-
-The `eslint-plugin-n8n-nodes-base` is incompatible with ESLint 10, so we removed it from the config. The plugin's rules are helpful but not critical. Consider downgrading to ESLint 9 if those rules are needed.
-
-## API Documentation
-
-- **Nexar API:** https://nexar.com/api
-- **Nexar Portal:** https://portal.nexar.com/ (create apps and get credentials)
-- **GraphQL Endpoint:** https://api.nexar.com/graphql
-- **Token Endpoint:** https://identity.nexar.com/connect/token
-- **Scope Required:** `design.domain`
-
-## Nexar Schema Notes
-
-### Critical Fields for Commit Tracking
-
-```graphql
-type DesProject {
-    updatedAt: DateTime!         # Updates on every Git push
-    latestRevision: DesVcsRevision  # Latest Git commit (NULLABLE!)
-    revisions: DesVcsRevisionConnection  # Full commit history
-}
-
-type DesVcsRevision {
-    revisionId: String!          # Git commit hash
-    message: String!             # Commit message
-    author: String!              # Author name (not DesUser object!)
-    createdAt: DateTime!         # Commit timestamp
-    files: [DesVcsRevisionFileChange!]!
-}
-
-type DesVcsRevisionFileChange {
-    kind: DesVcsChangeKind!      # ADDED | DELETED | MODIFIED | NONE
-    path: String!                # File path
-}
-```
-
-**Important:** The `latestRevision` and `revisions` fields are **NULLABLE**. Projects using Simple Sync or external VCS will have `null` values. Always null-check before accessing.
-
-## Testing
-
-To test locally before publishing:
-
-1. Build the package: `npm run build`
-2. Link locally: `npm link`
-3. In your n8n installation: `npm link n8n-nodes-altium365`
-4. Restart n8n
-5. The nodes should appear in the n8n UI
-
-## Publishing to npm
-
-Publishing is automated via GitHub Actions using npm trusted publishing (OIDC). This eliminates the need for npm tokens and provides cryptographic provenance attestations.
-
-### Setup (One-time)
-
-Since the package is already published (v0.1.0), you can now configure trusted publishing:
-
-1. **Configure trusted publisher on npm:**
-   - Go to https://www.npmjs.com/package/@jonmash/n8n-nodes-altium365/access
-   - Under "Trusted Publisher" section, click "GitHub Actions"
-   - Fill in the details:
-     - **Organization or user:** jonmash
-     - **Repository:** n8n-nodes-altium365
-     - **Workflow filename:** publish.yml
-   - Click "Set up connection"
-
-2. **That's it!** No tokens needed. The workflow uses OIDC authentication.
-
-### Release Process
-
-**CRITICAL:** npm publish is triggered by pushing a git tag. Merging to master alone does NOT publish. Always tag after merging or the version will sit unpublished.
-
-1. Update version in package.json (e.g., `0.1.0` → `0.2.0`)
-2. Update CHANGELOG.md with new version and changes
-3. Commit and merge to master
-4. Create and push tag immediately after merge:
-   ```bash
-   git tag -a v0.2.0 -m "v0.2.0"
-   git push --tags
-   ```
-5. GitHub Actions automatically builds, tests, and publishes to npm with provenance
-
-Monitor workflow progress at: https://github.com/jonmash/n8n-nodes-altium365/actions
-
-### How Trusted Publishing Works
-
-- GitHub Actions generates a short-lived OIDC token proving the workflow identity
-- npm verifies the token matches your trusted publisher configuration
-- Package is published with cryptographic provenance attestation showing exactly how it was built
-- No long-lived tokens to manage or secure
-
-## Dependencies
-
-**Runtime:**
-- `graphql-request` ^7.4.0 - GraphQL client
-
-**Development:**
-- `@graphql-codegen/*` - Code generation from GraphQL schema
-- `typescript` ^5.6.2
-- `n8n-workflow` ^1.120.0 - Peer dependency for types
-- ESLint, Prettier, Gulp
-
-## Commit Message Style
-
-Following professional git conventions:
-- Keep messages short and brief (one line preferred)
-- Use passive voice
-- Professional tone
-- No mention of tools or automation
-- Focus on what was changed, not who or how
-
-Example: "GraphQL codegen configured and workspace query added"
-
-## Next Session Checklist
-
-When resuming work:
-
-1. Run `npm install` if fresh clone
-2. Run `npm run codegen` to regenerate GraphQL types
-3. Run `npm run build` to verify everything compiles
-4. Check `git log --oneline` to see where we left off
-5. Review TODOs in this file for next features to implement
-
-## Questions to Address
-
-- Should we implement full pagination for "Get All" operations?
-- Which additional resources are highest priority? (BOM, Releases, Library)
-- Do we need the GraphQL subscription for comments, or is polling sufficient?
-- Should we add more filtering options to "Get Many Projects"?
-
-## Useful GraphQL Queries for Testing
-
-Test credentials:
-```graphql
-query TestCredentials {
-  desWorkspaceInfos {
-    url
-    name
-  }
-}
-```
-
-Get project with commits:
-```graphql
-query GetProjectWithCommits($id: ID!) {
-  desProjectById(id: $id) {
-    name
-    latestRevision {
-      revisionId
-      message
-      author
-    }
-  }
-}
+├── gulpfile.js
+└── view-n8n-logs.sh                         # Tail n8n Docker logs filtered to Altium
 ```
 
 ---
 
-**Last Updated:** 2025-03-16
-**Current Branch:** master
-**Current Tag:** v0.1.0
+## Development Commands
+
+```bash
+npm install          # install dependencies
+npm run codegen      # regenerate GraphQL types from nexar.sdl
+npm run build        # codegen + tsc + copy icons
+npm run dev          # tsc --watch (TypeScript only)
+npm run lint         # eslint
+npm run lintfix      # eslint --fix
+npm run format       # prettier
+```
+
+---
+
+## Release Process
+
+**CRITICAL:** npm publish is triggered by pushing a git tag. Merging to master alone does NOT publish. Always tag after merging.
+
+1. Bump version in `package.json`
+2. Commit and merge to master via feature branch (squash merge)
+3. Tag and push immediately after merge:
+   ```bash
+   git tag -a v0.X.0 -m "v0.X.0"
+   git push --tags
+   ```
+4. GitHub Actions publishes to npm via OIDC trusted publishing (no token needed)
+
+Monitor: https://github.com/jonmash/n8n-nodes-altium365/actions
+
+---
+
+## Nexar API Notes
+
+- **GraphQL endpoint:** `https://api.nexar.com/graphql`
+- **Token endpoint:** `https://identity.nexar.com/connect/token`
+- **Scope required:** `design.domain`
+- **Portal (create apps):** https://portal.nexar.com/
+
+### Key Schema Facts
+
+- `latestRevision` and `revisions` on `DesProject` are **nullable** — projects using Simple Sync or external VCS return `null`. Always null-check.
+- `DesVcsRevision.author` is a plain `String`, not a `DesUser` object.
+- Library `updatedAt` on `desLibrary` is stale (returns 2018) and never updates — do not use as a gate for component polling.
+- `callbackUrl` is only available on `DesCreateManufacturePackageInput`, not on `DesCreateProjectExportJobInput`.
+- Design variants (for `variantName`) live on `DesProject.design.variants[]` (WIP, not release-specific).
+
+### Pending: Export Authorization
+
+`desCreateProjectExportJob` returns `NexarGqlUnauthorizedExternalUser` on this account. Email drafted to support@nexar.com to clarify plan/permission requirements.
+
+---
+
+## Known Limitations / Future Work
+
+- **BOM operations** (`datBomParts`, `datBomAnalyses`) — separate `dat*` namespace, not yet implemented
+- **Tasks / Comments** — full CRUD available in schema, deprioritized
+- **Triggers for New Release / New Comment** — not yet implemented
+- **GraphQL subscriptions** — `desOnCommentUpdated` exists in schema (WebSocket); real-time triggers not implemented
+- **`desLaunchWorkflow`** — could trigger Altium internal workflows from n8n
+- **Export pagination** — triggers currently cap at 100 projects per page; workspace-wide polling handles pagination correctly via cursor loop
+
+---
+
+## Next Session Checklist
+
+1. `npm install` if fresh clone
+2. `npm run codegen` to regenerate GraphQL types
+3. `npm run build` to verify clean compile
+4. `git log --oneline` to see where we left off
+
+---
+
+**Last Updated:** 2026-03-31
+**Current Version:** 0.12.0
+**Current Tag:** v0.12.0
+
 - When starting a new feature, add the test cases first (Test Driven Development) and then work on the actual code.
